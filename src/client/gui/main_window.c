@@ -214,9 +214,20 @@ static GtkWidget* create_file_context_menu(AppState *state) {
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), rename_item);
 
     // Copy
-    GtkWidget *copy_item = gtk_menu_item_new_with_label("Copy...");
+    GtkWidget *copy_item = gtk_menu_item_new_with_label("Copy");
     g_signal_connect(copy_item, "activate", G_CALLBACK(on_copy_clicked), state);
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), copy_item);
+
+    // Paste
+    GtkWidget *paste_item = gtk_menu_item_new_with_label("Paste");
+    g_signal_connect(paste_item, "activate", G_CALLBACK(on_paste_clicked), state);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), paste_item);
+
+    // Store reference to paste menu item in state
+    state->paste_menu_item = paste_item;
+
+    // Initially disabled (no clipboard data)
+    gtk_widget_set_sensitive(paste_item, FALSE);
 
     // Separator
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
@@ -246,6 +257,11 @@ GtkWidget* create_main_window(AppState *state) {
 
     // Initialize navigation history
     history_init(&state->history);
+
+    // Initialize clipboard state
+    state->clipboard_file_id = 0;
+    state->clipboard_file_name[0] = '\0';
+    state->has_clipboard_data = 0;
 
     // Main vertical box
     GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);

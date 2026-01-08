@@ -28,10 +28,15 @@ typedef struct {
     GtkWidget *search_recursive_check;
     GtkWidget *back_button;
     GtkWidget *context_menu;
+    GtkWidget *paste_menu_item;
     DirectoryHistory history;
     ClientConnection *conn;
     int current_directory;
     char current_path[512];
+    // Clipboard state for copy-paste
+    int clipboard_file_id;
+    char clipboard_file_name[256];
+    int has_clipboard_data;
 } AppState;
 
 // Login result structure
@@ -61,6 +66,7 @@ void on_delete_clicked(GtkWidget *widget, AppState *state);
 void on_chmod_clicked(GtkWidget *widget, AppState *state);
 void on_rename_clicked(GtkWidget *widget, AppState *state);
 void on_copy_clicked(GtkWidget *widget, AppState *state);
+void on_paste_clicked(GtkWidget *widget, AppState *state);
 void on_row_activated(GtkTreeView *tree_view, GtkTreePath *path,
                      GtkTreeViewColumn *column, AppState *state);
 

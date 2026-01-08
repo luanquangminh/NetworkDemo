@@ -330,8 +330,10 @@ void on_rename_clicked(GtkWidget *widget, AppState *state) {
     g_free(current_name);
 }
 
-// Copy file/directory handler
+// Copy file/directory handler - stores file in clipboard
 void on_copy_clicked(GtkWidget *widget, AppState *state) {
+    (void)widget;  // Suppress unused warning
+
     GtkTreeSelection *selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(state->tree_view));
     GtkTreeModel *model;
     GtkTreeIter iter;
@@ -341,52 +343,62 @@ void on_copy_clicked(GtkWidget *widget, AppState *state) {
         return;
     }
 
-    gint source_id;
-    gchar *source_name;
-    gtk_tree_model_get(model, &iter, 0, &source_id, 2, &source_name, -1);
+    gint file_id;
+    gchar *file_name;
+    gtk_tree_model_get(model, &iter, 0, &file_id, 2, &file_name, -1);
 
-    // Create copy dialog
-    GtkWidget *dialog = gtk_dialog_new_with_buttons(
-        "Copy File",
-        GTK_WINDOW(state->window),
-        GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
-        "_Cancel", GTK_RESPONSE_CANCEL,
-        "_Copy", GTK_RESPONSE_OK,
-        NULL
-    );
+    // Store in clipboard
+    state->clipboard_file_id = file_id;
+    strncpy(state->clipboard_file_name, file_name, sizeof(state->clipboard_file_name) - 1);
+    state->clipboard_file_name[sizeof(state->clipboard_file_name) - 1] = '\0';
+    state->has_clipboard_data = 1;
 
-    GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    // Enable paste menu item
+    gtk_widget_set_sensitive(state->paste_menu_item, TRUE);
 
-    // New name entry
-    GtkWidget *name_label = gtk_label_new("New name:");
-    GtkWidget *name_entry = gtk_entry_new();
-    char default_name[256];
-    snprintf(default_name, sizeof(default_name), "%s_copy", source_name);
-    gtk_entry_set_text(GTK_ENTRY(name_entry), default_name);
+    // Update status bar
+    guint context_id = gtk_statusbar_get_context_id(
+        GTK_STATUSBAR(state->status_bar), "clipboard");
+    char status[512];
+    snprintf(status, sizeof(status), "Copied: %s | Current: %s",
+             state->clipboard_file_name, state->current_path);
+    gtk_statusbar_push(GTK_STATUSBAR(state->status_bar), context_id, status);
 
-    // Note: Copying to current directory
-    GtkWidget *note = gtk_label_new("(Will copy to current directory)");
+    g_free(file_name);
+}
 
-    gtk_box_pack_start(GTK_BOX(content), name_label, FALSE, FALSE, 5);
-    gtk_box_pack_start(GTK_BOX(content), name_entry, FALSE, FALSE, 5);
-    gtk_box_pack_start(GTK_BOX(content), note, FALSE, FALSE, 5);
-    gtk_widget_show_all(content);
+// Paste file/directory handler - pastes from clipboard to current directory
+void on_paste_clicked(GtkWidget *widget, AppState *state) {
+    (void)widget;  // Suppress unused warning
 
-    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_OK) {
-        const char *new_name = gtk_entry_get_text(GTK_ENTRY(name_entry));
-
-        if (strlen(new_name) > 0) {
-            if (client_copy(state->conn, source_id, state->current_directory, new_name) == 0) {
-                show_info_dialog(state->window, "File copied successfully!");
-                refresh_file_list(state);
-            } else {
-                show_error_dialog(state->window, "Failed to copy file");
-            }
-        }
+    if (!state->has_clipboard_data) {
+        show_error_dialog(state->window, "No file in clipboard");
+        return;
     }
 
-    gtk_widget_destroy(dialog);
-    g_free(source_name);
+    // Execute copy operation with original file name
+    if (client_copy(state->conn, state->clipboard_file_id,
+                   state->current_directory, state->clipboard_file_name) == 0) {
+        show_info_dialog(state->window, "File pasted successfully!");
+        refresh_file_list(state);
+
+        // Clear clipboard after successful paste
+        state->has_clipboard_data = 0;
+        state->clipboard_file_id = 0;
+        state->clipboard_file_name[0] = '\0';
+
+        // Disable paste menu item
+        gtk_widget_set_sensitive(state->paste_menu_item, FALSE);
+
+        // Update status bar
+        guint context_id = gtk_statusbar_get_context_id(
+            GTK_STATUSBAR(state->status_bar), "clipboard");
+        char status[256];
+        snprintf(status, sizeof(status), "Current: %s", state->current_path);
+        gtk_statusbar_push(GTK_STATUSBAR(state->status_bar), context_id, status);
+    } else {
+        show_error_dialog(state->window, "Failed to paste file");
+    }
 }
 
 void history_init(DirectoryHistory *history) {
