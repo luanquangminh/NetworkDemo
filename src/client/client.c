@@ -590,6 +590,162 @@ void* client_search(ClientConnection* conn, const char* pattern, int recursive, 
     return response_json;  // Caller must free with cJSON_Delete()
 }
 
+int client_rename(ClientConnection* conn, int file_id, const char* new_name) {
+    if (!conn || !conn->authenticated || !new_name) {
+        fprintf(stderr, "Invalid parameters for rename\n");
+        return -1;
+    }
+
+    // Build JSON request
+    cJSON* request = cJSON_CreateObject();
+    cJSON_AddNumberToObject(request, "file_id", file_id);
+    cJSON_AddStringToObject(request, "new_name", new_name);
+
+    char* request_str = cJSON_PrintUnformatted(request);
+    Packet* req_pkt = packet_create(CMD_RENAME, request_str, strlen(request_str));
+
+    int result = packet_send(conn->socket_fd, req_pkt);
+
+    free(request_str);
+    packet_free(req_pkt);
+    cJSON_Delete(request);
+
+    if (result < 0) {
+        fprintf(stderr, "Failed to send rename request\n");
+        return -1;
+    }
+
+    // Receive response
+    Packet* res_pkt = net_recv_packet(conn->socket_fd);
+    if (!res_pkt) {
+        fprintf(stderr, "Failed to receive rename response\n");
+        return -1;
+    }
+
+    result = -1;
+    if (res_pkt->command == CMD_SUCCESS) {
+        printf("File renamed successfully\n");
+        result = 0;
+    } else if (res_pkt->command == CMD_ERROR) {
+        cJSON* error_json = cJSON_Parse(res_pkt->payload);
+        if (error_json) {
+            cJSON* msg = cJSON_GetObjectItem(error_json, "message");
+            if (msg) {
+                fprintf(stderr, "Rename error: %s\n", cJSON_GetStringValue(msg));
+            }
+            cJSON_Delete(error_json);
+        }
+    }
+
+    packet_free(res_pkt);
+    return result;
+}
+
+int client_copy(ClientConnection* conn, int source_id, int dest_parent_id, const char* new_name) {
+    if (!conn || !conn->authenticated) {
+        fprintf(stderr, "Invalid parameters for copy\n");
+        return -1;
+    }
+
+    // Build JSON request
+    cJSON* request = cJSON_CreateObject();
+    cJSON_AddNumberToObject(request, "source_id", source_id);
+    cJSON_AddNumberToObject(request, "dest_parent_id", dest_parent_id);
+    if (new_name && strlen(new_name) > 0) {
+        cJSON_AddStringToObject(request, "new_name", new_name);
+    }
+
+    char* request_str = cJSON_PrintUnformatted(request);
+    Packet* req_pkt = packet_create(CMD_COPY, request_str, strlen(request_str));
+
+    int result = packet_send(conn->socket_fd, req_pkt);
+
+    free(request_str);
+    packet_free(req_pkt);
+    cJSON_Delete(request);
+
+    if (result < 0) {
+        fprintf(stderr, "Failed to send copy request\n");
+        return -1;
+    }
+
+    // Receive response
+    Packet* res_pkt = net_recv_packet(conn->socket_fd);
+    if (!res_pkt) {
+        fprintf(stderr, "Failed to receive copy response\n");
+        return -1;
+    }
+
+    result = -1;
+    if (res_pkt->command == CMD_SUCCESS) {
+        printf("File copied successfully\n");
+        result = 0;
+    } else if (res_pkt->command == CMD_ERROR) {
+        cJSON* error_json = cJSON_Parse(res_pkt->payload);
+        if (error_json) {
+            cJSON* msg = cJSON_GetObjectItem(error_json, "message");
+            if (msg) {
+                fprintf(stderr, "Copy error: %s\n", cJSON_GetStringValue(msg));
+            }
+            cJSON_Delete(error_json);
+        }
+    }
+
+    packet_free(res_pkt);
+    return result;
+}
+
+int client_move(ClientConnection* conn, int file_id, int new_parent_id) {
+    if (!conn || !conn->authenticated) {
+        fprintf(stderr, "Invalid parameters for move\n");
+        return -1;
+    }
+
+    // Build JSON request
+    cJSON* request = cJSON_CreateObject();
+    cJSON_AddNumberToObject(request, "file_id", file_id);
+    cJSON_AddNumberToObject(request, "new_parent_id", new_parent_id);
+
+    char* request_str = cJSON_PrintUnformatted(request);
+    Packet* req_pkt = packet_create(CMD_MOVE, request_str, strlen(request_str));
+
+    int result = packet_send(conn->socket_fd, req_pkt);
+
+    free(request_str);
+    packet_free(req_pkt);
+    cJSON_Delete(request);
+
+    if (result < 0) {
+        fprintf(stderr, "Failed to send move request\n");
+        return -1;
+    }
+
+    // Receive response
+    Packet* res_pkt = net_recv_packet(conn->socket_fd);
+    if (!res_pkt) {
+        fprintf(stderr, "Failed to receive move response\n");
+        return -1;
+    }
+
+    result = -1;
+    if (res_pkt->command == CMD_SUCCESS) {
+        printf("File moved successfully\n");
+        result = 0;
+    } else if (res_pkt->command == CMD_ERROR) {
+        cJSON* error_json = cJSON_Parse(res_pkt->payload);
+        if (error_json) {
+            cJSON* msg = cJSON_GetObjectItem(error_json, "message");
+            if (msg) {
+                fprintf(stderr, "Move error: %s\n", cJSON_GetStringValue(msg));
+            }
+            cJSON_Delete(error_json);
+        }
+    }
+
+    packet_free(res_pkt);
+    return result;
+}
+
 int client_upload_folder(ClientConnection* conn, const char* local_path) {
     if (!conn || !conn->authenticated || !local_path) return -1;
 

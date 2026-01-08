@@ -824,3 +824,197 @@ int db_search_files(Database* db, int base_dir_id, const char* pattern,
 
     return 0;
 }
+
+// Rename a file or directory
+int db_rename_file(Database* db, int file_id, const char* new_name) {
+    if (!db || !new_name) return -1;
+
+    // Validate new name length
+    if (strlen(new_name) == 0 || strlen(new_name) > 255) {
+        log_error("db_rename_file: Invalid name length");
+        return -1;
+    }
+
+    pthread_mutex_lock(&db->mutex);
+
+    // Check if file exists
+    const char* check_sql = "SELECT id FROM files WHERE id = ?";
+    sqlite3_stmt* check_stmt;
+
+    int rc = sqlite3_prepare_v2(db->conn, check_sql, -1, &check_stmt, NULL);
+    if (rc != SQLITE_OK) {
+        log_error("db_rename_file: prepare check failed: %s", sqlite3_errmsg(db->conn));
+        pthread_mutex_unlock(&db->mutex);
+        return -1;
+    }
+
+    sqlite3_bind_int(check_stmt, 1, file_id);
+    rc = sqlite3_step(check_stmt);
+    sqlite3_finalize(check_stmt);
+
+    if (rc != SQLITE_ROW) {
+        log_error("db_rename_file: File %d not found", file_id);
+        pthread_mutex_unlock(&db->mutex);
+        return -1;
+    }
+
+    // Update the file name
+    const char* sql = "UPDATE files SET name = ? WHERE id = ?";
+    sqlite3_stmt* stmt;
+
+    rc = sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        log_error("db_rename_file: prepare failed: %s", sqlite3_errmsg(db->conn));
+        pthread_mutex_unlock(&db->mutex);
+        return -1;
+    }
+
+    sqlite3_bind_text(stmt, 1, new_name, -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 2, file_id);
+
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        log_error("db_rename_file: step failed: %s", sqlite3_errmsg(db->conn));
+        pthread_mutex_unlock(&db->mutex);
+        return -1;
+    }
+
+    pthread_mutex_unlock(&db->mutex);
+    log_info("Renamed file %d to '%s'", file_id, new_name);
+    return 0;
+}
+
+// Copy a file (creates a new database entry, physical copy handled by server)
+int db_copy_file(Database* db, int source_id, int dest_parent_id, const char* new_name, int user_id) {
+    if (!db || !new_name) return -1;
+
+    pthread_mutex_lock(&db->mutex);
+
+    // Get source file information
+    const char* get_sql = "SELECT name, physical_path, size, is_directory, permissions "
+                          "FROM files WHERE id = ?";
+    sqlite3_stmt* get_stmt;
+
+    int rc = sqlite3_prepare_v2(db->conn, get_sql, -1, &get_stmt, NULL);
+    if (rc != SQLITE_OK) {
+        log_error("db_copy_file: prepare get failed: %s", sqlite3_errmsg(db->conn));
+        pthread_mutex_unlock(&db->mutex);
+        return -1;
+    }
+
+    sqlite3_bind_int(get_stmt, 1, source_id);
+    rc = sqlite3_step(get_stmt);
+
+    if (rc != SQLITE_ROW) {
+        log_error("db_copy_file: Source file %d not found", source_id);
+        sqlite3_finalize(get_stmt);
+        pthread_mutex_unlock(&db->mutex);
+        return -1;
+    }
+
+    const char* orig_name = (const char*)sqlite3_column_text(get_stmt, 0);
+    const char* physical_path = (const char*)sqlite3_column_text(get_stmt, 1);
+    long size = sqlite3_column_int64(get_stmt, 2);
+    int is_directory = sqlite3_column_int(get_stmt, 3);
+    int permissions = sqlite3_column_int(get_stmt, 4);
+
+    // Use provided name or original name
+    const char* use_name = (new_name && strlen(new_name) > 0) ? new_name : orig_name;
+
+    sqlite3_finalize(get_stmt);
+
+    // Generate new physical path (server will handle actual file copy)
+    char new_physical_path[64];
+    snprintf(new_physical_path, sizeof(new_physical_path), "copy_%d_%s", source_id, physical_path);
+
+    // Insert new file entry
+    const char* insert_sql = "INSERT INTO files (parent_id, name, physical_path, owner_id, size, is_directory, permissions) "
+                             "VALUES (?, ?, ?, ?, ?, ?, ?)";
+    sqlite3_stmt* insert_stmt;
+
+    rc = sqlite3_prepare_v2(db->conn, insert_sql, -1, &insert_stmt, NULL);
+    if (rc != SQLITE_OK) {
+        log_error("db_copy_file: prepare insert failed: %s", sqlite3_errmsg(db->conn));
+        pthread_mutex_unlock(&db->mutex);
+        return -1;
+    }
+
+    sqlite3_bind_int(insert_stmt, 1, dest_parent_id);
+    sqlite3_bind_text(insert_stmt, 2, use_name, -1, SQLITE_STATIC);
+    sqlite3_bind_text(insert_stmt, 3, new_physical_path, -1, SQLITE_STATIC);
+    sqlite3_bind_int(insert_stmt, 4, user_id);
+    sqlite3_bind_int64(insert_stmt, 5, size);
+    sqlite3_bind_int(insert_stmt, 6, is_directory);
+    sqlite3_bind_int(insert_stmt, 7, permissions);
+
+    rc = sqlite3_step(insert_stmt);
+    int new_id = (int)sqlite3_last_insert_rowid(db->conn);
+    sqlite3_finalize(insert_stmt);
+
+    if (rc != SQLITE_DONE) {
+        log_error("db_copy_file: insert failed: %s", sqlite3_errmsg(db->conn));
+        pthread_mutex_unlock(&db->mutex);
+        return -1;
+    }
+
+    pthread_mutex_unlock(&db->mutex);
+    log_info("Copied file %d to %d as '%s' (new id: %d)", source_id, dest_parent_id, use_name, new_id);
+    return new_id;
+}
+
+// Move a file to a different parent directory
+int db_move_file(Database* db, int file_id, int new_parent_id) {
+    if (!db) return -1;
+
+    pthread_mutex_lock(&db->mutex);
+
+    // Check if file exists
+    const char* check_sql = "SELECT id FROM files WHERE id = ?";
+    sqlite3_stmt* check_stmt;
+
+    int rc = sqlite3_prepare_v2(db->conn, check_sql, -1, &check_stmt, NULL);
+    if (rc != SQLITE_OK) {
+        log_error("db_move_file: prepare check failed: %s", sqlite3_errmsg(db->conn));
+        pthread_mutex_unlock(&db->mutex);
+        return -1;
+    }
+
+    sqlite3_bind_int(check_stmt, 1, file_id);
+    rc = sqlite3_step(check_stmt);
+    sqlite3_finalize(check_stmt);
+
+    if (rc != SQLITE_ROW) {
+        log_error("db_move_file: File %d not found", file_id);
+        pthread_mutex_unlock(&db->mutex);
+        return -1;
+    }
+
+    // Update parent_id
+    const char* sql = "UPDATE files SET parent_id = ? WHERE id = ?";
+    sqlite3_stmt* stmt;
+
+    rc = sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        log_error("db_move_file: prepare failed: %s", sqlite3_errmsg(db->conn));
+        pthread_mutex_unlock(&db->mutex);
+        return -1;
+    }
+
+    sqlite3_bind_int(stmt, 1, new_parent_id);
+    sqlite3_bind_int(stmt, 2, file_id);
+
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    if (rc != SQLITE_DONE) {
+        log_error("db_move_file: step failed: %s", sqlite3_errmsg(db->conn));
+        pthread_mutex_unlock(&db->mutex);
+        return -1;
+    }
+
+    pthread_mutex_unlock(&db->mutex);
+    log_info("Moved file %d to parent %d", file_id, new_parent_id);
+    return 0;
+}

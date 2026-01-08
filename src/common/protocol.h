@@ -26,6 +26,9 @@
 #define CMD_FILE_INFO    0x42
 #define CMD_SEARCH_REQ   0x43
 #define CMD_SEARCH_RES   0x44
+#define CMD_RENAME       0x45
+#define CMD_COPY         0x46
+#define CMD_MOVE         0x47
 #define CMD_ADMIN_LIST_USERS   0x50
 #define CMD_ADMIN_CREATE_USER  0x51
 #define CMD_ADMIN_DELETE_USER  0x52

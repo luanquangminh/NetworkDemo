@@ -43,6 +43,11 @@ int client_file_info(ClientConnection* conn, int file_id);
 // Search operations
 void* client_search(ClientConnection* conn, const char* pattern, int recursive, int limit);
 
+// File management operations
+int client_rename(ClientConnection* conn, int file_id, const char* new_name);
+int client_copy(ClientConnection* conn, int source_id, int dest_parent_id, const char* new_name);
+int client_move(ClientConnection* conn, int file_id, int new_parent_id);
+
 // Admin operations
 void* client_admin_list_users(ClientConnection* conn);  // Returns cJSON* with user list
 int client_admin_create_user(ClientConnection* conn, const char* username, const char* password, int is_admin);

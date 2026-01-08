@@ -61,6 +61,15 @@ int dispatch_command(ClientSession* session, Packet* pkt) {
         case CMD_SEARCH_REQ:
             handle_search(session, pkt);
             break;
+        case CMD_RENAME:
+            handle_rename(session, pkt);
+            break;
+        case CMD_COPY:
+            handle_copy(session, pkt);
+            break;
+        case CMD_MOVE:
+            handle_move(session, pkt);
+            break;
         case CMD_ADMIN_LIST_USERS:
             handle_admin_list_users(session, pkt);
             break;
@@ -1159,9 +1168,161 @@ void handle_search(ClientSession* session, Packet* pkt) {
 
     log_info("Search completed for user %d: pattern='%s', found=%d",
              session->user_id, pattern, count);
-    
+
     char log_desc[512];
     snprintf(log_desc, sizeof(log_desc), "Searched for '%s' (recursive=%d, found=%d)",
              pattern, recursive, count);
     db_log_activity(global_db, session->user_id, "SEARCH", log_desc);
+}
+
+// Rename file or directory
+void handle_rename(ClientSession* session, Packet* pkt) {
+    if (!session->authenticated) {
+        send_error(session, "Not authenticated");
+        return;
+    }
+
+    cJSON* json = cJSON_Parse(pkt->payload);
+    if (!json) {
+        send_error(session, "Invalid JSON");
+        return;
+    }
+
+    cJSON* file_id_obj = cJSON_GetObjectItem(json, "file_id");
+    cJSON* new_name_obj = cJSON_GetObjectItem(json, "new_name");
+
+    if (!file_id_obj || !new_name_obj) {
+        cJSON_Delete(json);
+        send_error(session, "Missing file_id or new_name");
+        return;
+    }
+
+    int file_id = file_id_obj->valueint;
+    const char* new_name = cJSON_GetStringValue(new_name_obj);
+
+    if (!new_name || strlen(new_name) == 0 || strlen(new_name) > 255) {
+        cJSON_Delete(json);
+        send_error(session, "Invalid new name");
+        return;
+    }
+
+    // Rename in database
+    int result = db_rename_file(global_db, file_id, new_name);
+
+    if (result < 0) {
+        cJSON_Delete(json);
+        send_error(session, "Failed to rename file");
+        return;
+    }
+
+    // Send success response
+    char success_msg[256];
+    snprintf(success_msg, sizeof(success_msg), "{\"message\":\"File renamed successfully\",\"file_id\":%d,\"new_name\":\"%s\"}", file_id, new_name);
+    send_success(session, CMD_SUCCESS, success_msg);
+
+    cJSON_Delete(json);
+
+    log_info("User %d renamed file %d to '%s'", session->user_id, file_id, new_name);
+
+    char log_desc[256];
+    snprintf(log_desc, sizeof(log_desc), "Renamed file %d to '%s'", file_id, new_name);
+    db_log_activity(global_db, session->user_id, "RENAME", log_desc);
+}
+
+// Copy file or directory
+void handle_copy(ClientSession* session, Packet* pkt) {
+    if (!session->authenticated) {
+        send_error(session, "Not authenticated");
+        return;
+    }
+
+    cJSON* json = cJSON_Parse(pkt->payload);
+    if (!json) {
+        send_error(session, "Invalid JSON");
+        return;
+    }
+
+    cJSON* source_id_obj = cJSON_GetObjectItem(json, "source_id");
+    cJSON* dest_parent_obj = cJSON_GetObjectItem(json, "dest_parent_id");
+    cJSON* new_name_obj = cJSON_GetObjectItem(json, "new_name");
+
+    if (!source_id_obj || !dest_parent_obj) {
+        cJSON_Delete(json);
+        send_error(session, "Missing source_id or dest_parent_id");
+        return;
+    }
+
+    int source_id = source_id_obj->valueint;
+    int dest_parent_id = dest_parent_obj->valueint;
+    const char* new_name = new_name_obj ? cJSON_GetStringValue(new_name_obj) : "";
+
+    // Copy in database (creates new entry, physical copy would be handled separately)
+    int new_id = db_copy_file(global_db, source_id, dest_parent_id, new_name, session->user_id);
+
+    if (new_id < 0) {
+        cJSON_Delete(json);
+        send_error(session, "Failed to copy file");
+        return;
+    }
+
+    // Send success response with new file ID
+    char success_msg[256];
+    snprintf(success_msg, sizeof(success_msg), "{\"message\":\"File copied successfully\",\"source_id\":%d,\"new_id\":%d}", source_id, new_id);
+    send_success(session, CMD_SUCCESS, success_msg);
+
+    cJSON_Delete(json);
+
+    log_info("User %d copied file %d to parent %d (new id: %d)", session->user_id, source_id, dest_parent_id, new_id);
+
+    char log_desc[256];
+    snprintf(log_desc, sizeof(log_desc), "Copied file %d to parent %d (new id: %d)", source_id, dest_parent_id, new_id);
+    db_log_activity(global_db, session->user_id, "COPY", log_desc);
+}
+
+// Move file or directory
+void handle_move(ClientSession* session, Packet* pkt) {
+    if (!session->authenticated) {
+        send_error(session, "Not authenticated");
+        return;
+    }
+
+    cJSON* json = cJSON_Parse(pkt->payload);
+    if (!json) {
+        send_error(session, "Invalid JSON");
+        return;
+    }
+
+    cJSON* file_id_obj = cJSON_GetObjectItem(json, "file_id");
+    cJSON* new_parent_obj = cJSON_GetObjectItem(json, "new_parent_id");
+
+    if (!file_id_obj || !new_parent_obj) {
+        cJSON_Delete(json);
+        send_error(session, "Missing file_id or new_parent_id");
+        return;
+    }
+
+    int file_id = file_id_obj->valueint;
+    int new_parent_id = new_parent_obj->valueint;
+
+    // Move in database
+    int result = db_move_file(global_db, file_id, new_parent_id);
+
+    if (result < 0) {
+        cJSON_Delete(json);
+        send_error(session, "Failed to move file");
+        return;
+    }
+
+    // Send success response
+    char success_msg[256];
+    snprintf(success_msg, sizeof(success_msg), "{\"message\":\"File moved successfully\",\"file_id\":%d,\"new_parent_id\":%d}", file_id, new_parent_id);
+    send_success(session, CMD_SUCCESS, success_msg);
+
+    cJSON_Delete(json);
+
+    log_info("User %d moved file %d to parent %d", session->user_id, file_id, new_parent_id);
+
+    char log_desc[256];
+    snprintf(log_desc, sizeof(log_desc), "Moved file %d to parent %d", file_id, new_parent_id);
+    db_log_activity(global_db, session->user_id, "MOVE", log_desc);
 }

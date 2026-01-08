@@ -19,6 +19,9 @@ void print_help(void) {
     printf("  delete <id>           - Delete file or directory\n");
     printf("  info <id>             - Show detailed file information\n");
     printf("  search <pattern> [-r] - Search files (wildcards: *, ?; -r for recursive)\n");
+    printf("  rename <id> <name>    - Rename file or directory\n");
+    printf("  copy <src_id> <dest_parent_id> [name] - Copy file to directory\n");
+    printf("  move <id> <dest_parent_id> - Move file to directory\n");
     printf("  pwd                   - Print current directory\n");
     printf("  help                  - Show this help\n");
     printf("  quit                  - Exit\n");
@@ -225,6 +228,31 @@ int main(int argc, char** argv) {
                 printf("  search test.txt      - Find exact match\n");
                 printf("  search *.txt         - Find all .txt files\n");
                 printf("  search test* -r      - Find files starting with 'test' (recursive)\n");
+            }
+        } else if (strcmp(cmd, "rename") == 0 || strcmp(cmd, "mv") == 0) {
+            char* id_str = strtok(NULL, " \t\n");
+            char* new_name = strtok(NULL, " \t\n");
+            if (id_str && new_name) {
+                client_rename(conn, atoi(id_str), new_name);
+            } else {
+                printf("Usage: rename <file_id> <new_name>\n");
+            }
+        } else if (strcmp(cmd, "copy") == 0 || strcmp(cmd, "cp") == 0) {
+            char* src_id_str = strtok(NULL, " \t\n");
+            char* dest_parent_str = strtok(NULL, " \t\n");
+            char* new_name = strtok(NULL, " \t\n");
+            if (src_id_str && dest_parent_str) {
+                client_copy(conn, atoi(src_id_str), atoi(dest_parent_str), new_name);
+            } else {
+                printf("Usage: copy <source_id> <dest_parent_id> [new_name]\n");
+            }
+        } else if (strcmp(cmd, "move") == 0) {
+            char* id_str = strtok(NULL, " \t\n");
+            char* dest_parent_str = strtok(NULL, " \t\n");
+            if (id_str && dest_parent_str) {
+                client_move(conn, atoi(id_str), atoi(dest_parent_str));
+            } else {
+                printf("Usage: move <file_id> <dest_parent_id>\n");
             }
         } else if (strcmp(cmd, "pwd") == 0) {
             printf("Current directory: %s (ID: %d)\n", conn->current_path, conn->current_directory);

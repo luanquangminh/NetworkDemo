@@ -22,6 +22,9 @@ void handle_chmod(ClientSession* session, Packet* pkt);
 void handle_delete(ClientSession* session, Packet* pkt);
 void handle_file_info(ClientSession* session, Packet* pkt);
 void handle_search(ClientSession* session, Packet* pkt);
+void handle_rename(ClientSession* session, Packet* pkt);
+void handle_copy(ClientSession* session, Packet* pkt);
+void handle_move(ClientSession* session, Packet* pkt);
 
 // Admin command handlers
 void handle_admin_list_users(ClientSession* session, Packet* pkt);

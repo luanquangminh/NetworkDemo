@@ -61,4 +61,9 @@ int db_search_files(Database* db, int base_dir_id, const char* pattern,
                     int recursive, int user_id, int limit,
                     FileEntry** entries, int* count);
 
+// File management operations
+int db_rename_file(Database* db, int file_id, const char* new_name);
+int db_copy_file(Database* db, int source_id, int dest_parent_id, const char* new_name, int user_id);
+int db_move_file(Database* db, int file_id, int new_parent_id);
+
 #endif
