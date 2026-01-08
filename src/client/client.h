@@ -40,6 +40,9 @@ int client_download_folder(ClientConnection* conn, int folder_id, const char* lo
 int client_delete(ClientConnection* conn, int file_id);
 int client_file_info(ClientConnection* conn, int file_id);
 
+// Search operations
+void* client_search(ClientConnection* conn, const char* pattern, int recursive, int limit);
+
 // Admin operations
 void* client_admin_list_users(ClientConnection* conn);  // Returns cJSON* with user list
 int client_admin_create_user(ClientConnection* conn, const char* username, const char* password, int is_admin);

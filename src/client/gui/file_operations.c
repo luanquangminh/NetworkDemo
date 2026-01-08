@@ -1,6 +1,10 @@
 #include "gui.h"
 #include <string.h>
+#include <stdlib.h>
 #include "cJSON.h"
+
+#define HISTORY_INITIAL_CAPACITY 10
+#define HISTORY_MAX_CAPACITY 50
 
 void refresh_file_list(AppState *state) {
     gtk_list_store_clear(state->file_store);
@@ -22,6 +26,13 @@ void refresh_file_list(AppState *state) {
             int size = cJSON_GetObjectItem(file, "size")->valueint;
             int perms = cJSON_GetObjectItem(file, "permissions")->valueint;
 
+            // Extract owner from JSON response
+            const char* owner = "unknown";
+            cJSON* owner_obj = cJSON_GetObjectItem(file, "owner");
+            if (owner_obj) {
+                owner = cJSON_GetStringValue(owner_obj);
+            }
+
             GtkTreeIter iter;
             gtk_list_store_append(state->file_store, &iter);
             gtk_list_store_set(state->file_store, &iter,
@@ -29,8 +40,9 @@ void refresh_file_list(AppState *state) {
                 1, is_dir ? "folder" : "text-x-generic",  // Icon name
                 2, name,
                 3, is_dir ? "Directory" : "File",
-                4, is_dir ? 0 : size,
-                5, g_strdup_printf("%03o", perms),
+                4, owner,
+                5, is_dir ? 0 : size,
+                6, g_strdup_printf("%03o", perms),
                 -1);
         }
     }
@@ -54,6 +66,9 @@ void on_row_activated(GtkTreeView *tree_view, GtkTreePath *path,
 
         // If it's a directory, navigate into it
         if (strcmp(type, "Directory") == 0) {
+            // Save current directory to history BEFORE navigation
+            history_push(&state->history, state->current_directory, state->current_path);
+
             if (client_cd(state->conn, file_id) == 0) {
                 state->current_directory = file_id;
                 strcpy(state->current_path, state->conn->current_path);
@@ -65,6 +80,14 @@ void on_row_activated(GtkTreeView *tree_view, GtkTreePath *path,
                 char status[256];
                 snprintf(status, sizeof(status), "Current: %s", state->current_path);
                 gtk_statusbar_push(GTK_STATUSBAR(state->status_bar), context_id, status);
+
+                // Enable back button
+                gtk_widget_set_sensitive(state->back_button, TRUE);
+            } else {
+                // Navigation failed, remove history entry
+                int dummy_id;
+                char dummy_path[512];
+                history_pop(&state->history, &dummy_id, dummy_path);
             }
         }
 
@@ -229,7 +252,7 @@ void on_chmod_clicked(GtkWidget *widget, AppState *state) {
 
     gint file_id;
     gchar *perms_str;
-    gtk_tree_model_get(model, &iter, 0, &file_id, 5, &perms_str, -1);
+    gtk_tree_model_get(model, &iter, 0, &file_id, 6, &perms_str, -1);
 
     // Parse current permissions (e.g., "755")
     int current_perms = strtol(perms_str, NULL, 8);
@@ -251,4 +274,66 @@ void on_chmod_clicked(GtkWidget *widget, AppState *state) {
     }
 
     gtk_widget_destroy(chmod_dialog);
+}
+
+// History management functions
+void history_init(DirectoryHistory *history) {
+    history->entries = malloc(HISTORY_INITIAL_CAPACITY * sizeof(DirectoryHistoryEntry));
+    history->count = 0;
+    history->capacity = HISTORY_INITIAL_CAPACITY;
+}
+
+void history_free(DirectoryHistory *history) {
+    if (history->entries) {
+        free(history->entries);
+        history->entries = NULL;
+    }
+    history->count = 0;
+    history->capacity = 0;
+}
+
+void history_push(DirectoryHistory *history, int dir_id, const char *path) {
+    // Check if at max capacity - remove oldest if needed
+    if (history->count >= HISTORY_MAX_CAPACITY) {
+        // Shift all entries down (remove oldest)
+        memmove(&history->entries[0], &history->entries[1],
+                (HISTORY_MAX_CAPACITY - 1) * sizeof(DirectoryHistoryEntry));
+        history->count = HISTORY_MAX_CAPACITY - 1;
+    }
+
+    // Grow array if needed
+    if (history->count >= history->capacity) {
+        history->capacity *= 2;
+        if (history->capacity > HISTORY_MAX_CAPACITY) {
+            history->capacity = HISTORY_MAX_CAPACITY;
+        }
+        history->entries = realloc(history->entries,
+                                   history->capacity * sizeof(DirectoryHistoryEntry));
+    }
+
+    // Add new entry
+    history->entries[history->count].directory_id = dir_id;
+    strncpy(history->entries[history->count].path, path, 511);
+    history->entries[history->count].path[511] = '\0';
+    history->count++;
+}
+
+int history_pop(DirectoryHistory *history, int *dir_id, char *path) {
+    if (history->count == 0) {
+        return -1;  // Empty stack
+    }
+
+    history->count--;
+    *dir_id = history->entries[history->count].directory_id;
+    strcpy(path, history->entries[history->count].path);
+
+    return 0;  // Success
+}
+
+int history_is_empty(DirectoryHistory *history) {
+    return history->count == 0;
+}
+
+void history_clear(DirectoryHistory *history) {
+    history->count = 0;
 }

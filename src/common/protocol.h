@@ -24,6 +24,8 @@
 #define CMD_DELETE       0x40
 #define CMD_CHMOD        0x41
 #define CMD_FILE_INFO    0x42
+#define CMD_SEARCH_REQ   0x43
+#define CMD_SEARCH_RES   0x44
 #define CMD_ADMIN_LIST_USERS   0x50
 #define CMD_ADMIN_CREATE_USER  0x51
 #define CMD_ADMIN_DELETE_USER  0x52

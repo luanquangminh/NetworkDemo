@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_files_parent ON files(parent_id);
 CREATE INDEX IF NOT EXISTS idx_files_owner ON files(owner_id);
+CREATE INDEX IF NOT EXISTS idx_files_name ON files(name COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_logs_user ON activity_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_users_admin ON users(is_admin);
 

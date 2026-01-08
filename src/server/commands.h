@@ -21,6 +21,7 @@ void handle_download(ClientSession* session, Packet* pkt);
 void handle_chmod(ClientSession* session, Packet* pkt);
 void handle_delete(ClientSession* session, Packet* pkt);
 void handle_file_info(ClientSession* session, Packet* pkt);
+void handle_search(ClientSession* session, Packet* pkt);
 
 // Admin command handlers
 void handle_admin_list_users(ClientSession* session, Packet* pkt);

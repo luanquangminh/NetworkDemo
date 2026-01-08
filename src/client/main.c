@@ -4,6 +4,7 @@
 #include "client.h"
 #include "net_handler.h"
 #include "../common/protocol.h"
+#include "../../lib/cJSON/cJSON.h"
 
 void print_help(void) {
     printf("\nCommands:\n");
@@ -17,6 +18,7 @@ void print_help(void) {
     printf("  chmod <id> <perm>     - Change permissions (e.g., 755)\n");
     printf("  delete <id>           - Delete file or directory\n");
     printf("  info <id>             - Show detailed file information\n");
+    printf("  search <pattern> [-r] - Search files (wildcards: *, ?; -r for recursive)\n");
     printf("  pwd                   - Print current directory\n");
     printf("  help                  - Show this help\n");
     printf("  quit                  - Exit\n");
@@ -162,6 +164,67 @@ int main(int argc, char** argv) {
                 client_file_info(conn, atoi(id_str));
             } else {
                 printf("Usage: info <file_id>\n");
+            }
+        } else if (strcmp(cmd, "search") == 0 || strcmp(cmd, "find") == 0) {
+            char* pattern = strtok(NULL, " \t\n");
+            if (pattern) {
+                int recursive = 0;
+
+                // Check for -r flag
+                char* next_arg = strtok(NULL, " \t\n");
+                if (next_arg && (strcmp(next_arg, "-r") == 0 || strcmp(next_arg, "--recursive") == 0)) {
+                    recursive = 1;
+                }
+
+                // Call search function
+                cJSON* results = (cJSON*)client_search(conn, pattern, recursive, 100);
+
+                if (results) {
+                    cJSON* files = cJSON_GetObjectItem(results, "files");
+                    cJSON* count_obj = cJSON_GetObjectItem(results, "count");
+
+                    if (count_obj) {
+                        int count = count_obj->valueint;
+                        printf("\nFound %d file(s) matching '%s'%s:\n\n",
+                               count, pattern, recursive ? " (recursive)" : "");
+
+                        if (count > 0 && files) {
+                            printf("%-6s %-4s %-35s %-10s %-50s\n",
+                                   "ID", "Type", "Name", "Size", "Path");
+                            printf("------------------------------------------------------------------------------------------------\n");
+
+                            cJSON* file;
+                            cJSON_ArrayForEach(file, files) {
+                                int id = cJSON_GetObjectItem(file, "id")->valueint;
+                                int is_dir = cJSON_GetObjectItem(file, "is_directory")->valueint;
+                                const char* name = cJSON_GetStringValue(cJSON_GetObjectItem(file, "name"));
+                                int size = cJSON_GetObjectItem(file, "size")->valueint;
+
+                                // Get path if available
+                                const char* path = "/";
+                                cJSON* path_obj = cJSON_GetObjectItem(file, "path");
+                                if (path_obj) {
+                                    path = cJSON_GetStringValue(path_obj);
+                                }
+
+                                printf("%-6d %-4s %-35s %-10d %-50s\n",
+                                       id, is_dir ? "DIR" : "FILE", name,
+                                       is_dir ? 0 : size, path);
+                            }
+                            printf("\n");
+                        }
+                    }
+
+                    cJSON_Delete(results);
+                } else {
+                    printf("Search failed\n");
+                }
+            } else {
+                printf("Usage: search <pattern> [-r]\n");
+                printf("Examples:\n");
+                printf("  search test.txt      - Find exact match\n");
+                printf("  search *.txt         - Find all .txt files\n");
+                printf("  search test* -r      - Find files starting with 'test' (recursive)\n");
             }
         } else if (strcmp(cmd, "pwd") == 0) {
             printf("Current directory: %s (ID: %d)\n", conn->current_path, conn->current_directory);

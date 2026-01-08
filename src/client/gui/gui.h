@@ -3,6 +3,20 @@
 
 #include <gtk/gtk.h>
 #include "../client.h"
+#include "../../../lib/cJSON/cJSON.h"
+
+// Directory history entry for back navigation
+typedef struct {
+    int directory_id;
+    char path[512];
+} DirectoryHistoryEntry;
+
+// Directory history stack for back navigation
+typedef struct {
+    DirectoryHistoryEntry *entries;
+    int count;
+    int capacity;
+} DirectoryHistory;
 
 // GUI application state
 typedef struct {
@@ -10,6 +24,10 @@ typedef struct {
     GtkWidget *tree_view;
     GtkListStore *file_store;
     GtkWidget *status_bar;
+    GtkWidget *search_entry;
+    GtkWidget *search_recursive_check;
+    GtkWidget *back_button;
+    DirectoryHistory history;
     ClientConnection *conn;
     int current_directory;
     char current_path[512];
@@ -42,5 +60,17 @@ void on_delete_clicked(GtkWidget *widget, AppState *state);
 void on_chmod_clicked(GtkWidget *widget, AppState *state);
 void on_row_activated(GtkTreeView *tree_view, GtkTreePath *path,
                      GtkTreeViewColumn *column, AppState *state);
+
+// Search operations
+void on_search_clicked(GtkWidget *widget, AppState *state);
+void show_search_results_dialog(GtkWidget *parent, cJSON *results, const char *pattern, int recursive);
+
+// History management functions
+void history_init(DirectoryHistory *history);
+void history_free(DirectoryHistory *history);
+void history_push(DirectoryHistory *history, int dir_id, const char *path);
+int history_pop(DirectoryHistory *history, int *dir_id, char *path);
+int history_is_empty(DirectoryHistory *history);
+void history_clear(DirectoryHistory *history);
 
 #endif // GUI_H

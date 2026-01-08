@@ -56,4 +56,9 @@ int db_list_directory(Database* db, int parent_id, FileEntry** entries, int* cou
 int db_delete_file(Database* db, int file_id);
 int db_update_permissions(Database* db, int file_id, int permissions);
 
+// Search operations
+int db_search_files(Database* db, int base_dir_id, const char* pattern,
+                    int recursive, int user_id, int limit,
+                    FileEntry** entries, int* count);
+
 #endif

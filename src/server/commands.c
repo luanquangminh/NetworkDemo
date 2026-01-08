@@ -58,6 +58,9 @@ int dispatch_command(ClientSession* session, Packet* pkt) {
         case CMD_FILE_INFO:
             handle_file_info(session, pkt);
             break;
+        case CMD_SEARCH_REQ:
+            handle_search(session, pkt);
+            break;
         case CMD_ADMIN_LIST_USERS:
             handle_admin_list_users(session, pkt);
             break;
@@ -199,6 +202,14 @@ void handle_list_dir(ClientSession* session, Packet* pkt) {
     cJSON* files_array = cJSON_AddArrayToObject(response, "files");
 
     for (int i = 0; i < count; i++) {
+        // Fetch username from owner_id
+        char owner_username[256] = "unknown";
+        if (db_get_user_by_id(global_db, entries[i].owner_id,
+                              owner_username, sizeof(owner_username)) != 0) {
+            // If lookup fails, show "unknown"
+            strcpy(owner_username, "unknown");
+        }
+
         cJSON* item = cJSON_CreateObject();
         cJSON_AddNumberToObject(item, "id", entries[i].id);
         cJSON_AddStringToObject(item, "name", entries[i].name);
@@ -206,6 +217,7 @@ void handle_list_dir(ClientSession* session, Packet* pkt) {
         cJSON_AddNumberToObject(item, "size", entries[i].size);
         cJSON_AddNumberToObject(item, "permissions", entries[i].permissions);
         cJSON_AddNumberToObject(item, "owner_id", entries[i].owner_id);
+        cJSON_AddStringToObject(item, "owner", owner_username);
         cJSON_AddItemToArray(files_array, item);
     }
 
@@ -1004,4 +1016,152 @@ void handle_admin_update_user(ClientSession* session, Packet* pkt) {
     free(payload);
     cJSON_Delete(json);
     cJSON_Delete(response);
+}
+
+// Helper: Build full VFS path by traversing parent_id chain
+static void build_full_path(Database* db, int file_id, char* path, size_t size) {
+    char components[32][256];
+    int depth = 0;
+    int current_id = file_id;
+
+    // Traverse up to root
+    while (current_id > 0 && depth < 32) {
+        FileEntry entry;
+        if (db_get_file_by_id(db, current_id, &entry) != 0) break;
+
+        strncpy(components[depth++], entry.name, 255);
+        components[depth-1][255] = '\0';
+        current_id = entry.parent_id;
+    }
+
+    // Build path from root down
+    path[0] = '\0';
+    for (int i = depth - 1; i >= 0; i--) {
+        if (i == depth - 1 && strcmp(components[i], "/") == 0) {
+            // Skip root name if it's "/"
+            continue;
+        }
+        if (strlen(path) > 0 && path[strlen(path)-1] != '/') {
+            strncat(path, "/", size - strlen(path) - 1);
+        }
+        strncat(path, components[i], size - strlen(path) - 1);
+    }
+
+    // Ensure leading slash
+    if (path[0] != '/' && strlen(path) > 0) {
+        memmove(path + 1, path, strlen(path) + 1);
+        path[0] = '/';
+    } else if (path[0] == '\0') {
+        strcpy(path, "/");
+    }
+}
+
+// Handler: Search files
+void handle_search(ClientSession* session, Packet* pkt) {
+    if (!pkt->payload) {
+        send_error(session, "Empty payload");
+        return;
+    }
+
+    cJSON* json = cJSON_Parse(pkt->payload);
+    if (!json) {
+        send_error(session, "Invalid JSON");
+        return;
+    }
+
+    // Extract parameters
+    cJSON* pattern_item = cJSON_GetObjectItem(json, "pattern");
+    cJSON* dir_item = cJSON_GetObjectItem(json, "directory_id");
+    cJSON* recursive_item = cJSON_GetObjectItem(json, "recursive");
+    cJSON* limit_item = cJSON_GetObjectItem(json, "limit");
+
+    if (!pattern_item || !dir_item) {
+        send_error(session, "Missing required fields");
+        cJSON_Delete(json);
+        return;
+    }
+
+    const char* pattern = cJSON_GetStringValue(pattern_item);
+    int directory_id = dir_item->valueint;
+    int recursive = recursive_item ? (recursive_item->valueint != 0) : 0;
+    int limit = limit_item ? limit_item->valueint : 100;
+
+    // Validate limit
+    if (limit <= 0 || limit > 1000) {
+        limit = 100;
+    }
+
+    // Validate pattern
+    if (!pattern || strlen(pattern) == 0) {
+        send_error(session, "Invalid search pattern");
+        cJSON_Delete(json);
+        return;
+    }
+
+    log_info("Search request from user %d: pattern='%s', dir=%d, recursive=%d, limit=%d",
+             session->user_id, pattern, directory_id, recursive, limit);
+
+    // Perform search
+    FileEntry* entries = NULL;
+    int count = 0;
+
+    int result = db_search_files(global_db, directory_id, pattern, recursive,
+                                  session->user_id, limit, &entries, &count);
+
+    if (result != 0) {
+        send_error(session, "Search failed");
+        cJSON_Delete(json);
+        return;
+    }
+
+    // Build response
+    cJSON* response = cJSON_CreateObject();
+    cJSON_AddStringToObject(response, "status", "OK");
+    cJSON_AddNumberToObject(response, "count", count);
+
+    cJSON* results_array = cJSON_AddArrayToObject(response, "results");
+
+    for (int i = 0; i < count; i++) {
+        // Build full path for each result
+        char full_path[1024];
+        build_full_path(global_db, entries[i].id, full_path, sizeof(full_path));
+
+        // Fetch username from owner_id
+        char owner_username[256] = "unknown";
+        if (db_get_user_by_id(global_db, entries[i].owner_id,
+                              owner_username, sizeof(owner_username)) != 0) {
+            // If lookup fails, show "unknown"
+            strcpy(owner_username, "unknown");
+        }
+
+        cJSON* item = cJSON_CreateObject();
+        cJSON_AddNumberToObject(item, "id", entries[i].id);
+        cJSON_AddStringToObject(item, "name", entries[i].name);
+        cJSON_AddNumberToObject(item, "parent_id", entries[i].parent_id);
+        cJSON_AddStringToObject(item, "path", full_path);
+        cJSON_AddNumberToObject(item, "size", entries[i].size);
+        cJSON_AddBoolToObject(item, "is_directory", entries[i].is_directory);
+        cJSON_AddNumberToObject(item, "permissions", entries[i].permissions);
+        cJSON_AddNumberToObject(item, "owner_id", entries[i].owner_id);
+        cJSON_AddStringToObject(item, "owner", owner_username);
+        cJSON_AddStringToObject(item, "created_at", entries[i].created_at);
+
+        cJSON_AddItemToArray(results_array, item);
+    }
+
+    char* payload = cJSON_PrintUnformatted(response);
+    send_success(session, CMD_SEARCH_RES, payload);
+
+    free(entries);
+    free(payload);
+    cJSON_Delete(json);
+    cJSON_Delete(response);
+
+    log_info("Search completed for user %d: pattern='%s', found=%d",
+             session->user_id, pattern, count);
+    
+    char log_desc[512];
+    snprintf(log_desc, sizeof(log_desc), "Searched for '%s' (recursive=%d, found=%d)",
+             pattern, recursive, count);
+    db_log_activity(global_db, session->user_id, "SEARCH", log_desc);
 }

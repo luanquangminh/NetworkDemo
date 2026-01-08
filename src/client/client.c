@@ -508,6 +508,88 @@ int client_file_info(ClientConnection* conn, int file_id) {
     return result;
 }
 
+void* client_search(ClientConnection* conn, const char* pattern, int recursive, int limit) {
+    if (!conn || !conn->authenticated || !pattern) {
+        fprintf(stderr, "Invalid parameters for search\n");
+        return NULL;
+    }
+
+    // Validate pattern length
+    if (strlen(pattern) == 0 || strlen(pattern) > 255) {
+        fprintf(stderr, "Pattern must be 1-255 characters\n");
+        return NULL;
+    }
+
+    // Validate limit (use default if 0 or negative, cap at 1000)
+    if (limit <= 0) {
+        limit = 100;  // Default limit
+    } else if (limit > 1000) {
+        limit = 1000;  // Maximum limit
+    }
+
+    // Build JSON request
+    cJSON* request = cJSON_CreateObject();
+    cJSON_AddStringToObject(request, "pattern", pattern);
+    cJSON_AddNumberToObject(request, "directory_id", conn->current_directory);
+    cJSON_AddBoolToObject(request, "recursive", recursive);
+    cJSON_AddNumberToObject(request, "limit", limit);
+
+    char* request_str = cJSON_PrintUnformatted(request);
+    Packet* req_pkt = packet_create(CMD_SEARCH_REQ, request_str, strlen(request_str));
+
+    int result = packet_send(conn->socket_fd, req_pkt);
+
+    free(request_str);
+    packet_free(req_pkt);
+    cJSON_Delete(request);
+
+    if (result < 0) {
+        fprintf(stderr, "Failed to send search request\n");
+        return NULL;
+    }
+
+    // Receive response
+    Packet* res_pkt = net_recv_packet(conn->socket_fd);
+    if (!res_pkt) {
+        fprintf(stderr, "Failed to receive search response\n");
+        return NULL;
+    }
+
+    // Handle error response
+    if (res_pkt->command == CMD_ERROR) {
+        cJSON* error_json = cJSON_Parse(res_pkt->payload);
+        if (error_json) {
+            cJSON* msg = cJSON_GetObjectItem(error_json, "message");
+            if (msg) {
+                fprintf(stderr, "Search error: %s\n", cJSON_GetStringValue(msg));
+            }
+            cJSON_Delete(error_json);
+        } else {
+            fprintf(stderr, "Search failed with unknown error\n");
+        }
+        packet_free(res_pkt);
+        return NULL;
+    }
+
+    // Verify correct response command
+    if (res_pkt->command != CMD_SEARCH_RES) {
+        fprintf(stderr, "Unexpected response command: 0x%02x\n", res_pkt->command);
+        packet_free(res_pkt);
+        return NULL;
+    }
+
+    // Parse and return response JSON
+    cJSON* response_json = cJSON_Parse(res_pkt->payload);
+    packet_free(res_pkt);
+
+    if (!response_json) {
+        fprintf(stderr, "Failed to parse search response\n");
+        return NULL;
+    }
+
+    return response_json;  // Caller must free with cJSON_Delete()
+}
+
 int client_upload_folder(ClientConnection* conn, const char* local_path) {
     if (!conn || !conn->authenticated || !local_path) return -1;
 

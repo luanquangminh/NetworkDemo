@@ -577,3 +577,250 @@ int db_create_user_admin(Database* db, const char* username, const char* passwor
 
     return user_id;
 }
+// Helper: Convert shell wildcards (* ?) to SQL wildcards (% _)
+static void convert_wildcard_pattern(const char* input, char* output, size_t size) {
+    size_t j = 0;
+
+    for (size_t i = 0; input[i] && j < size - 1; i++) {
+        if (input[i] == '*') {
+            output[j++] = '%';
+        } else if (input[i] == '?') {
+            output[j++] = '_';
+        } else if (input[i] == '%' || input[i] == '_') {
+            // Escape SQL wildcards if used literally
+            if (j < size - 2) {
+                output[j++] = '\\';
+                output[j++] = input[i];
+            }
+        } else if (input[i] == '\\') {
+            // Escape backslash
+            if (j < size - 2) {
+                output[j++] = '\\';
+                output[j++] = '\\';
+            }
+        } else {
+            output[j++] = input[i];
+        }
+    }
+
+    output[j] = '\0';
+}
+
+// Helper: Build full VFS path by traversing parent_id chain
+static int build_full_path(Database* db, int file_id, char* path, size_t size) {
+    (void)size;  // Unused parameter
+    char components[32][256];  // Max 32 levels deep
+    int depth = 0;
+    int current_id = file_id;
+
+    pthread_mutex_lock(&db->mutex);
+
+    // Traverse up to root
+    while (current_id > 0 && depth < 32) {
+        sqlite3_stmt* stmt;
+        const char* sql = "SELECT name, parent_id FROM files WHERE id = ?";
+
+        int rc = sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL);
+        if (rc != SQLITE_OK) {
+            pthread_mutex_unlock(&db->mutex);
+            return -1;
+        }
+
+        sqlite3_bind_int(stmt, 1, current_id);
+        rc = sqlite3_step(stmt);
+
+        if (rc == SQLITE_ROW) {
+            const char* name = (const char*)sqlite3_column_text(stmt, 0);
+            strncpy(components[depth], name, 255);
+            components[depth][255] = '\0';
+            current_id = sqlite3_column_int(stmt, 1);
+            depth++;
+        } else {
+            sqlite3_finalize(stmt);
+            break;
+        }
+
+        sqlite3_finalize(stmt);
+    }
+
+    pthread_mutex_unlock(&db->mutex);
+
+    // Build path from root down
+    path[0] = '\0';
+
+    if (depth == 0) {
+        strcpy(path, "/");
+        return 0;
+    }
+
+    for (int i = depth - 1; i >= 0; i--) {
+        // Skip root name
+        if (i == depth - 1 && strcmp(components[i], "/") == 0) {
+            continue;
+        }
+
+        strcat(path, "/");
+        strcat(path, components[i]);
+    }
+
+    // Ensure leading slash
+    if (path[0] != '/') {
+        memmove(path + 1, path, strlen(path) + 1);
+        path[0] = '/';
+    }
+
+    return 0;
+}
+
+// Main search function
+int db_search_files(Database* db, int base_dir_id, const char* pattern,
+                    int recursive, int user_id, int limit,
+                    FileEntry** entries, int* count) {
+    (void)user_id;  // Unused parameter (for future permission checks)
+
+    if (!db || !pattern || !entries || !count) {
+        log_error("db_search_files: Invalid parameters");
+        return -1;
+    }
+
+    // Validate pattern
+    size_t pattern_len = strlen(pattern);
+    if (pattern_len == 0 || pattern_len > 255) {
+        log_error("db_search_files: Invalid pattern length: %zu", pattern_len);
+        return -1;
+    }
+
+    // Reject overly broad searches
+    if (strcmp(pattern, "*") == 0 || strcmp(pattern, "%") == 0) {
+        log_error("db_search_files: Rejected overly broad pattern");
+        return -1;
+    }
+
+    // Convert wildcards: * -> %, ? -> _
+    char sql_pattern[512];
+    convert_wildcard_pattern(pattern, sql_pattern, sizeof(sql_pattern));
+
+    // Add wildcards if not present
+    if (strchr(sql_pattern, '%') == NULL && strchr(sql_pattern, '_') == NULL) {
+        // No wildcards, add % on both sides for substring match
+        char temp[512];
+        snprintf(temp, sizeof(temp), "%%%s%%", sql_pattern);
+        strncpy(sql_pattern, temp, sizeof(sql_pattern) - 1);
+    }
+
+    pthread_mutex_lock(&db->mutex);
+
+    sqlite3_stmt* stmt;
+    const char* sql;
+
+    if (recursive) {
+        // Recursive search using CTE
+        sql = "WITH RECURSIVE file_tree(id, parent_id, name, physical_path, "
+              "owner_id, size, is_directory, permissions, created_at, level) AS ("
+              "  SELECT id, parent_id, name, physical_path, owner_id, size, "
+              "         is_directory, permissions, created_at, 0 as level "
+              "  FROM files WHERE id = ? "
+              "  UNION ALL "
+              "  SELECT f.id, f.parent_id, f.name, f.physical_path, f.owner_id, "
+              "         f.size, f.is_directory, f.permissions, f.created_at, ft.level + 1 "
+              "  FROM files f INNER JOIN file_tree ft ON f.parent_id = ft.id "
+              "  WHERE ft.level < 20 "  // Prevent infinite loops
+              ") "
+              "SELECT id, parent_id, name, physical_path, owner_id, size, "
+              "       is_directory, permissions, created_at "
+              "FROM file_tree "
+              "WHERE name LIKE ? COLLATE NOCASE AND id != ? "
+              "ORDER BY is_directory DESC, name ASC "
+              "LIMIT ?";
+    } else {
+        // Non-recursive search (current directory only)
+        sql = "SELECT id, parent_id, name, physical_path, owner_id, size, "
+              "       is_directory, permissions, created_at "
+              "FROM files "
+              "WHERE parent_id = ? AND name LIKE ? COLLATE NOCASE "
+              "ORDER BY is_directory DESC, name ASC "
+              "LIMIT ?";
+    }
+
+    int rc = sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        log_error("db_search_files: prepare failed: %s", sqlite3_errmsg(db->conn));
+        pthread_mutex_unlock(&db->mutex);
+        return -1;
+    }
+
+    // Bind parameters
+    sqlite3_bind_int(stmt, 1, base_dir_id);
+    sqlite3_bind_text(stmt, 2, sql_pattern, -1, SQLITE_STATIC);
+
+    if (recursive) {
+        sqlite3_bind_int(stmt, 3, base_dir_id);  // Exclude base dir itself
+        sqlite3_bind_int(stmt, 4, limit);
+    } else {
+        sqlite3_bind_int(stmt, 3, limit);
+    }
+
+    // Allocate result array
+    int capacity = 50;
+    *entries = malloc(capacity * sizeof(FileEntry));
+    if (!*entries) {
+        sqlite3_finalize(stmt);
+        pthread_mutex_unlock(&db->mutex);
+        return -1;
+    }
+
+    *count = 0;
+
+    // Fetch results
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        if (*count >= capacity) {
+            capacity *= 2;
+            FileEntry* new_entries = realloc(*entries, capacity * sizeof(FileEntry));
+            if (!new_entries) {
+                free(*entries);
+                sqlite3_finalize(stmt);
+                pthread_mutex_unlock(&db->mutex);
+                return -1;
+            }
+            *entries = new_entries;
+        }
+
+        FileEntry* entry = &(*entries)[*count];
+        memset(entry, 0, sizeof(FileEntry));
+
+        entry->id = sqlite3_column_int(stmt, 0);
+        entry->parent_id = sqlite3_column_int(stmt, 1);
+
+        const char* name = (const char*)sqlite3_column_text(stmt, 2);
+        if (name) strncpy(entry->name, name, sizeof(entry->name) - 1);
+
+        const char* path = (const char*)sqlite3_column_text(stmt, 3);
+        if (path) strncpy(entry->physical_path, path, sizeof(entry->physical_path) - 1);
+
+        entry->owner_id = sqlite3_column_int(stmt, 4);
+        entry->size = sqlite3_column_int64(stmt, 5);
+        entry->is_directory = sqlite3_column_int(stmt, 6);
+        entry->permissions = sqlite3_column_int(stmt, 7);
+
+        const char* created = (const char*)sqlite3_column_text(stmt, 8);
+        if (created) strncpy(entry->created_at, created, sizeof(entry->created_at) - 1);
+
+        (*count)++;
+    }
+
+    sqlite3_finalize(stmt);
+    pthread_mutex_unlock(&db->mutex);
+
+    if (rc != SQLITE_DONE) {
+        log_error("db_search_files: step failed: %s", sqlite3_errmsg(db->conn));
+        free(*entries);
+        *entries = NULL;
+        *count = 0;
+        return -1;
+    }
+
+    log_info("Search found %d results for pattern '%s' (recursive=%d)",
+             *count, pattern, recursive);
+
+    return 0;
+}
