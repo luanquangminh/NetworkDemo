@@ -27,6 +27,7 @@ typedef struct {
     GtkWidget *search_entry;
     GtkWidget *search_recursive_check;
     GtkWidget *back_button;
+    GtkWidget *context_menu;
     DirectoryHistory history;
     ClientConnection *conn;
     int current_directory;
@@ -58,6 +59,8 @@ void on_download_clicked(GtkWidget *widget, AppState *state);
 void on_mkdir_clicked(GtkWidget *widget, AppState *state);
 void on_delete_clicked(GtkWidget *widget, AppState *state);
 void on_chmod_clicked(GtkWidget *widget, AppState *state);
+void on_rename_clicked(GtkWidget *widget, AppState *state);
+void on_copy_clicked(GtkWidget *widget, AppState *state);
 void on_row_activated(GtkTreeView *tree_view, GtkTreePath *path,
                      GtkTreeViewColumn *column, AppState *state);
 

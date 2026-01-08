@@ -277,6 +277,118 @@ void on_chmod_clicked(GtkWidget *widget, AppState *state) {
 }
 
 // History management functions
+// Rename file/directory handler
+void on_rename_clicked(GtkWidget *widget, AppState *state) {
+    GtkTreeSelection *selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(state->tree_view));
+    GtkTreeModel *model;
+    GtkTreeIter iter;
+
+    if (!gtk_tree_selection_get_selected(selection, &model, &iter)) {
+        show_error_dialog(state->window, "Please select a file to rename");
+        return;
+    }
+
+    gint file_id;
+    gchar *current_name;
+    gtk_tree_model_get(model, &iter, 0, &file_id, 2, &current_name, -1);
+
+    // Create rename dialog
+    GtkWidget *dialog = gtk_dialog_new_with_buttons(
+        "Rename File",
+        GTK_WINDOW(state->window),
+        GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+        "_Cancel", GTK_RESPONSE_CANCEL,
+        "_Rename", GTK_RESPONSE_OK,
+        NULL
+    );
+
+    GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    GtkWidget *entry = gtk_entry_new();
+    gtk_entry_set_text(GTK_ENTRY(entry), current_name);
+    gtk_entry_set_activates_default(GTK_ENTRY(entry), TRUE);
+    gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_OK);
+
+    GtkWidget *label = gtk_label_new("New name:");
+    gtk_box_pack_start(GTK_BOX(content), label, FALSE, FALSE, 5);
+    gtk_box_pack_start(GTK_BOX(content), entry, FALSE, FALSE, 5);
+    gtk_widget_show_all(content);
+
+    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_OK) {
+        const char *new_name = gtk_entry_get_text(GTK_ENTRY(entry));
+
+        if (strlen(new_name) > 0 && strcmp(new_name, current_name) != 0) {
+            if (client_rename(state->conn, file_id, new_name) == 0) {
+                show_info_dialog(state->window, "File renamed successfully!");
+                refresh_file_list(state);
+            } else {
+                show_error_dialog(state->window, "Failed to rename file");
+            }
+        }
+    }
+
+    gtk_widget_destroy(dialog);
+    g_free(current_name);
+}
+
+// Copy file/directory handler
+void on_copy_clicked(GtkWidget *widget, AppState *state) {
+    GtkTreeSelection *selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(state->tree_view));
+    GtkTreeModel *model;
+    GtkTreeIter iter;
+
+    if (!gtk_tree_selection_get_selected(selection, &model, &iter)) {
+        show_error_dialog(state->window, "Please select a file to copy");
+        return;
+    }
+
+    gint source_id;
+    gchar *source_name;
+    gtk_tree_model_get(model, &iter, 0, &source_id, 2, &source_name, -1);
+
+    // Create copy dialog
+    GtkWidget *dialog = gtk_dialog_new_with_buttons(
+        "Copy File",
+        GTK_WINDOW(state->window),
+        GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+        "_Cancel", GTK_RESPONSE_CANCEL,
+        "_Copy", GTK_RESPONSE_OK,
+        NULL
+    );
+
+    GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+
+    // New name entry
+    GtkWidget *name_label = gtk_label_new("New name:");
+    GtkWidget *name_entry = gtk_entry_new();
+    char default_name[256];
+    snprintf(default_name, sizeof(default_name), "%s_copy", source_name);
+    gtk_entry_set_text(GTK_ENTRY(name_entry), default_name);
+
+    // Note: Copying to current directory
+    GtkWidget *note = gtk_label_new("(Will copy to current directory)");
+
+    gtk_box_pack_start(GTK_BOX(content), name_label, FALSE, FALSE, 5);
+    gtk_box_pack_start(GTK_BOX(content), name_entry, FALSE, FALSE, 5);
+    gtk_box_pack_start(GTK_BOX(content), note, FALSE, FALSE, 5);
+    gtk_widget_show_all(content);
+
+    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_OK) {
+        const char *new_name = gtk_entry_get_text(GTK_ENTRY(name_entry));
+
+        if (strlen(new_name) > 0) {
+            if (client_copy(state->conn, source_id, state->current_directory, new_name) == 0) {
+                show_info_dialog(state->window, "File copied successfully!");
+                refresh_file_list(state);
+            } else {
+                show_error_dialog(state->window, "Failed to copy file");
+            }
+        }
+    }
+
+    gtk_widget_destroy(dialog);
+    g_free(source_name);
+}
+
 void history_init(DirectoryHistory *history) {
     history->entries = malloc(HISTORY_INITIAL_CAPACITY * sizeof(DirectoryHistoryEntry));
     history->count = 0;

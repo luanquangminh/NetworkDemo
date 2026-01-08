@@ -7,6 +7,16 @@ extern gboolean g_logout_requested;
 
 // Forward declarations
 static void on_back_clicked(GtkWidget *widget, AppState *state);
+static GtkWidget* create_file_context_menu(AppState *state);
+static gboolean on_tree_view_button_press(GtkWidget *widget, GdkEventButton *event, AppState *state);
+static void on_drag_data_get(GtkWidget *widget, GdkDragContext *context,
+                             GtkSelectionData *data, guint info, guint time,
+                             AppState *state);
+static void on_drag_data_received(GtkWidget *widget, GdkDragContext *context,
+                                   gint x, gint y, GtkSelectionData *data,
+                                   guint info, guint time, AppState *state);
+static gboolean on_drag_motion(GtkWidget *widget, GdkDragContext *context,
+                                gint x, gint y, guint time, AppState *state);
 
 static void on_quit_activate(GtkWidget *widget, AppState *state) {
     gtk_main_quit();
@@ -50,6 +60,182 @@ static void on_main_window_destroy(GtkWidget *widget, AppState *state) {
         state->conn = NULL;
     }
     gtk_main_quit();
+}
+
+// Right-click event handler
+static gboolean on_tree_view_button_press(GtkWidget *widget, GdkEventButton *event, AppState *state) {
+    // Check for right-click (button 3)
+    if (event->button == 3 && event->type == GDK_BUTTON_PRESS) {
+        // Get clicked row path
+        GtkTreePath *path;
+        if (gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(widget),
+                                          event->x, event->y,
+                                          &path, NULL, NULL, NULL)) {
+            // Select the row
+            GtkTreeSelection *selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(widget));
+            gtk_tree_selection_select_path(selection, path);
+            gtk_tree_path_free(path);
+
+            // Show context menu at pointer
+            gtk_menu_popup_at_pointer(GTK_MENU(state->context_menu), (GdkEvent*)event);
+            return TRUE; // Event handled
+        }
+    }
+    return FALSE; // Let other handlers process
+}
+
+// Drag-and-drop signal handlers
+static void on_drag_data_get(GtkWidget *widget, GdkDragContext *context,
+                             GtkSelectionData *data, guint info, guint time,
+                             AppState *state) {
+    (void)widget;
+    (void)context;
+    (void)info;
+    (void)time;
+
+    GtkTreeSelection *selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(state->tree_view));
+    GtkTreeModel *model;
+    GtkTreeIter iter;
+
+    if (gtk_tree_selection_get_selected(selection, &model, &iter)) {
+        gint file_id;
+        gtk_tree_model_get(model, &iter, 0, &file_id, -1);
+
+        // Send file ID as text data
+        char file_id_str[32];
+        snprintf(file_id_str, sizeof(file_id_str), "%d", file_id);
+        gtk_selection_data_set_text(data, file_id_str, -1);
+    }
+}
+
+static void on_drag_data_received(GtkWidget *widget, GdkDragContext *context,
+                                   gint x, gint y, GtkSelectionData *data,
+                                   guint info, guint time, AppState *state) {
+    (void)widget;
+    (void)info;
+
+    gboolean success = FALSE;
+
+    // Get drop target path
+    GtkTreePath *path;
+    GtkTreeViewDropPosition pos;
+    if (gtk_tree_view_get_dest_row_at_pos(GTK_TREE_VIEW(state->tree_view),
+                                          x, y, &path, &pos)) {
+        GtkTreeModel *model = gtk_tree_view_get_model(GTK_TREE_VIEW(state->tree_view));
+        GtkTreeIter iter;
+
+        if (gtk_tree_model_get_iter(model, &iter, path)) {
+            gint dest_id;
+            gchar *dest_type;
+            gtk_tree_model_get(model, &iter, 0, &dest_id, 3, &dest_type, -1);
+
+            // Only allow drop on directories
+            if (strcmp(dest_type, "Directory") == 0) {
+                // Get dragged file ID from selection data
+                const guchar *text_data = gtk_selection_data_get_text(data);
+                if (text_data) {
+                    int file_id = atoi((const char*)text_data);
+
+                    // Prevent dropping on self
+                    if (file_id != dest_id) {
+                        // Execute move operation
+                        if (client_move(state->conn, file_id, dest_id) == 0) {
+                            success = TRUE;
+                            show_info_dialog(state->window, "File moved successfully!");
+                            refresh_file_list(state);
+                        } else {
+                            show_error_dialog(state->window, "Failed to move file.");
+                        }
+                    }
+                }
+            }
+
+            g_free(dest_type);
+        }
+
+        gtk_tree_path_free(path);
+    }
+
+    gtk_drag_finish(context, success, FALSE, time);
+}
+
+static gboolean on_drag_motion(GtkWidget *widget, GdkDragContext *context,
+                                gint x, gint y, guint time, AppState *state) {
+    (void)state;
+
+    GtkTreePath *path;
+    GtkTreeViewDropPosition pos;
+
+    // Check if hovering over a valid drop target
+    if (gtk_tree_view_get_dest_row_at_pos(GTK_TREE_VIEW(widget),
+                                          x, y, &path, &pos)) {
+        GtkTreeModel *model = gtk_tree_view_get_model(GTK_TREE_VIEW(widget));
+        GtkTreeIter iter;
+
+        if (gtk_tree_model_get_iter(model, &iter, path)) {
+            gchar *type;
+            gtk_tree_model_get(model, &iter, 3, &type, -1);
+
+            // Only directories are valid drop targets
+            if (strcmp(type, "Directory") == 0) {
+                gdk_drag_status(context, GDK_ACTION_MOVE, time);
+                gtk_tree_view_set_drag_dest_row(GTK_TREE_VIEW(widget), path,
+                                                GTK_TREE_VIEW_DROP_INTO_OR_AFTER);
+                g_free(type);
+                gtk_tree_path_free(path);
+                return TRUE;
+            }
+
+            g_free(type);
+        }
+
+        gtk_tree_path_free(path);
+    }
+
+    // Not a valid drop target
+    gdk_drag_status(context, 0, time);
+    gtk_tree_view_set_drag_dest_row(GTK_TREE_VIEW(widget), NULL,
+                                    GTK_TREE_VIEW_DROP_INTO_OR_AFTER);
+    return FALSE;
+}
+
+// Create context menu for file operations
+static GtkWidget* create_file_context_menu(AppState *state) {
+    GtkWidget *menu = gtk_menu_new();
+
+    // Download
+    GtkWidget *download_item = gtk_menu_item_new_with_label("Download");
+    g_signal_connect(download_item, "activate", G_CALLBACK(on_download_clicked), state);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), download_item);
+
+    // Rename
+    GtkWidget *rename_item = gtk_menu_item_new_with_label("Rename...");
+    g_signal_connect(rename_item, "activate", G_CALLBACK(on_rename_clicked), state);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), rename_item);
+
+    // Copy
+    GtkWidget *copy_item = gtk_menu_item_new_with_label("Copy...");
+    g_signal_connect(copy_item, "activate", G_CALLBACK(on_copy_clicked), state);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), copy_item);
+
+    // Separator
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+
+    // Permissions
+    GtkWidget *chmod_item = gtk_menu_item_new_with_label("Permissions...");
+    g_signal_connect(chmod_item, "activate", G_CALLBACK(on_chmod_clicked), state);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), chmod_item);
+
+    // Separator
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+
+    // Delete
+    GtkWidget *delete_item = gtk_menu_item_new_with_label("Delete");
+    g_signal_connect(delete_item, "activate", G_CALLBACK(on_delete_clicked), state);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), delete_item);
+
+    gtk_widget_show_all(menu);
+    return menu;
 }
 
 GtkWidget* create_main_window(AppState *state) {
@@ -187,6 +373,33 @@ GtkWidget* create_main_window(AppState *state) {
     g_signal_connect(state->tree_view, "row-activated",
                     G_CALLBACK(on_row_activated), state);
 
+    // Enable right-click detection
+    gtk_widget_add_events(state->tree_view, GDK_BUTTON_PRESS_MASK);
+    g_signal_connect(state->tree_view, "button-press-event",
+                    G_CALLBACK(on_tree_view_button_press), state);
+
+    // Setup drag-and-drop
+    GtkTargetEntry target_entry = {"text/plain", GTK_TARGET_SAME_WIDGET, 0};
+
+    // Enable drag source (allow dragging from tree view)
+    gtk_tree_view_enable_model_drag_source(GTK_TREE_VIEW(state->tree_view),
+                                           GDK_BUTTON1_MASK,
+                                           &target_entry, 1,
+                                           GDK_ACTION_MOVE);
+
+    // Enable drop target (allow dropping onto tree view)
+    gtk_tree_view_enable_model_drag_dest(GTK_TREE_VIEW(state->tree_view),
+                                         &target_entry, 1,
+                                         GDK_ACTION_MOVE);
+
+    // Connect drag-and-drop signals
+    g_signal_connect(state->tree_view, "drag-data-get",
+                    G_CALLBACK(on_drag_data_get), state);
+    g_signal_connect(state->tree_view, "drag-data-received",
+                    G_CALLBACK(on_drag_data_received), state);
+    g_signal_connect(state->tree_view, "drag-motion",
+                    G_CALLBACK(on_drag_motion), state);
+
     // Columns
     GtkCellRenderer *renderer;
     GtkTreeViewColumn *column;
@@ -233,6 +446,9 @@ GtkWidget* create_main_window(AppState *state) {
 
     gtk_container_add(GTK_CONTAINER(scrolled), state->tree_view);
     gtk_box_pack_start(GTK_BOX(vbox), scrolled, TRUE, TRUE, 0);
+
+    // Create context menu for right-click
+    state->context_menu = create_file_context_menu(state);
 
     // Status bar
     state->status_bar = gtk_statusbar_new();
