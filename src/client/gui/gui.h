@@ -21,7 +21,7 @@ typedef struct {
 // GUI application state
 typedef struct {
     GtkWidget *window;
-    GtkWidget *tree_view;
+    GtkWidget *tree_view;           // File list view (right pane)
     GtkListStore *file_store;
     GtkWidget *status_bar;
     GtkWidget *search_entry;
@@ -29,6 +29,13 @@ typedef struct {
     GtkWidget *back_button;
     GtkWidget *context_menu;
     GtkWidget *paste_menu_item;
+    GtkWidget *empty_space_context_menu;
+    GtkWidget *empty_space_paste_item;
+    // Directory tree sidebar
+    GtkWidget *paned;               // Horizontal pane splitter
+    GtkWidget *tree_sidebar;        // Directory tree view (left pane)
+    GtkTreeStore *dir_tree_store;   // Hierarchical directory model
+    GtkWidget *tree_context_menu;   // Context menu for tree
     DirectoryHistory history;
     ClientConnection *conn;
     int current_directory;
@@ -81,5 +88,10 @@ void history_push(DirectoryHistory *history, int dir_id, const char *path);
 int history_pop(DirectoryHistory *history, int *dir_id, char *path);
 int history_is_empty(DirectoryHistory *history);
 void history_clear(DirectoryHistory *history);
+
+// Tree synchronization functions
+void update_tree_selection(AppState *state);
+void add_directory_to_tree(AppState *state, int dir_id, const char *name);
+void remove_directory_from_tree(AppState *state, int dir_id);
 
 #endif // GUI_H

@@ -8,6 +8,7 @@ extern gboolean g_logout_requested;
 // Forward declarations
 static void on_back_clicked(GtkWidget *widget, AppState *state);
 static GtkWidget* create_file_context_menu(AppState *state);
+static GtkWidget* create_empty_space_context_menu(AppState *state);
 static gboolean on_tree_view_button_press(GtkWidget *widget, GdkEventButton *event, AppState *state);
 static void on_drag_data_get(GtkWidget *widget, GdkDragContext *context,
                              GtkSelectionData *data, guint info, guint time,
@@ -17,6 +18,17 @@ static void on_drag_data_received(GtkWidget *widget, GdkDragContext *context,
                                    guint info, guint time, AppState *state);
 static gboolean on_drag_motion(GtkWidget *widget, GdkDragContext *context,
                                 gint x, gint y, guint time, AppState *state);
+// Directory tree functions (static - internal to main_window.c)
+static void populate_tree_root(AppState *state);
+static void load_tree_children(AppState *state, GtkTreeIter *parent_iter);
+static void on_tree_cursor_changed(GtkTreeSelection *selection, AppState *state);
+static void on_tree_row_expanded(GtkTreeView *tree_view, GtkTreeIter *iter,
+                                  GtkTreePath *path, AppState *state);
+static gboolean find_tree_iter_by_id(GtkTreeStore *store, GtkTreeIter *result,
+                                      GtkTreeIter *parent, int dir_id);
+// update_tree_selection, add_directory_to_tree, remove_directory_from_tree are exported in gui.h
+static GtkWidget* create_tree_context_menu(AppState *state);
+static gboolean on_tree_sidebar_button_press(GtkWidget *widget, GdkEventButton *event, AppState *state);
 
 static void on_quit_activate(GtkWidget *widget, AppState *state) {
     gtk_main_quit();
@@ -71,13 +83,18 @@ static gboolean on_tree_view_button_press(GtkWidget *widget, GdkEventButton *eve
         if (gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(widget),
                                           event->x, event->y,
                                           &path, NULL, NULL, NULL)) {
+            // Clicked on a file/folder item
             // Select the row
             GtkTreeSelection *selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(widget));
             gtk_tree_selection_select_path(selection, path);
             gtk_tree_path_free(path);
 
-            // Show context menu at pointer
+            // Show file context menu at pointer
             gtk_menu_popup_at_pointer(GTK_MENU(state->context_menu), (GdkEvent*)event);
+            return TRUE; // Event handled
+        } else {
+            // Clicked on empty space - show empty space context menu
+            gtk_menu_popup_at_pointer(GTK_MENU(state->empty_space_context_menu), (GdkEvent*)event);
             return TRUE; // Event handled
         }
     }
@@ -249,6 +266,43 @@ static GtkWidget* create_file_context_menu(AppState *state) {
     return menu;
 }
 
+// Create context menu for empty space operations
+static GtkWidget* create_empty_space_context_menu(AppState *state) {
+    GtkWidget *menu = gtk_menu_new();
+
+    // New Folder
+    GtkWidget *mkdir_item = gtk_menu_item_new_with_label("New Folder...");
+    g_signal_connect(mkdir_item, "activate", G_CALLBACK(on_mkdir_clicked), state);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), mkdir_item);
+
+    // Paste
+    GtkWidget *paste_item = gtk_menu_item_new_with_label("Paste");
+    g_signal_connect(paste_item, "activate", G_CALLBACK(on_paste_clicked), state);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), paste_item);
+
+    // Store reference to paste menu item in state
+    state->empty_space_paste_item = paste_item;
+
+    // Initially disabled (no clipboard data)
+    gtk_widget_set_sensitive(paste_item, FALSE);
+
+    // Separator
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+
+    // Refresh
+    GtkWidget *refresh_item = gtk_menu_item_new_with_label("Refresh");
+    g_signal_connect_swapped(refresh_item, "activate", G_CALLBACK(refresh_file_list), state);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), refresh_item);
+
+    // Upload
+    GtkWidget *upload_item = gtk_menu_item_new_with_label("Upload...");
+    g_signal_connect(upload_item, "activate", G_CALLBACK(on_upload_clicked), state);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), upload_item);
+
+    gtk_widget_show_all(menu);
+    return menu;
+}
+
 GtkWidget* create_main_window(AppState *state) {
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(window), "File Sharing Client");
@@ -368,7 +422,55 @@ GtkWidget* create_main_window(AppState *state) {
 
     gtk_box_pack_start(GTK_BOX(vbox), toolbar, FALSE, FALSE, 0);
 
-    // Scrolled window for file list
+    // Create horizontal paned (two-pane layout)
+    state->paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+
+    // Left pane: Directory tree
+    GtkWidget *tree_scrolled = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(tree_scrolled),
+                                   GTK_POLICY_AUTOMATIC,
+                                   GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_size_request(tree_scrolled, 200, -1);  // Min width 200px
+
+    // Create directory tree store
+    // Columns: ID (int), Name (string), Icon (string), IsLoaded (bool), HasChildren (bool)
+    state->dir_tree_store = gtk_tree_store_new(5,
+        G_TYPE_INT,      // Directory ID
+        G_TYPE_STRING,   // Directory name
+        G_TYPE_STRING,   // Icon name ("folder")
+        G_TYPE_BOOLEAN,  // Is loaded (for lazy loading)
+        G_TYPE_BOOLEAN   // Has children (for expand arrow)
+    );
+
+    // Create directory tree view
+    state->tree_sidebar = gtk_tree_view_new_with_model(GTK_TREE_MODEL(state->dir_tree_store));
+    gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(state->tree_sidebar), FALSE);
+
+    // Tree column with icon and name
+    GtkCellRenderer *tree_icon_renderer = gtk_cell_renderer_pixbuf_new();
+    GtkCellRenderer *tree_text_renderer = gtk_cell_renderer_text_new();
+    GtkTreeViewColumn *tree_column = gtk_tree_view_column_new();
+    gtk_tree_view_column_pack_start(tree_column, tree_icon_renderer, FALSE);
+    gtk_tree_view_column_pack_start(tree_column, tree_text_renderer, TRUE);
+    gtk_tree_view_column_add_attribute(tree_column, tree_icon_renderer, "icon-name", 2);
+    gtk_tree_view_column_add_attribute(tree_column, tree_text_renderer, "text", 1);
+    gtk_tree_view_append_column(GTK_TREE_VIEW(state->tree_sidebar), tree_column);
+
+    // Connect tree signals
+    GtkTreeSelection *tree_selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(state->tree_sidebar));
+    gtk_tree_selection_set_mode(tree_selection, GTK_SELECTION_SINGLE);
+    g_signal_connect(tree_selection, "changed", G_CALLBACK(on_tree_cursor_changed), state);
+    g_signal_connect(state->tree_sidebar, "row-expanded", G_CALLBACK(on_tree_row_expanded), state);
+
+    // Enable right-click on tree
+    gtk_widget_add_events(state->tree_sidebar, GDK_BUTTON_PRESS_MASK);
+    g_signal_connect(state->tree_sidebar, "button-press-event",
+                    G_CALLBACK(on_tree_sidebar_button_press), state);
+
+    gtk_container_add(GTK_CONTAINER(tree_scrolled), state->tree_sidebar);
+    gtk_paned_pack1(GTK_PANED(state->paned), tree_scrolled, FALSE, TRUE);
+
+    // Right pane: File list
     GtkWidget *scrolled = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled),
                                    GTK_POLICY_AUTOMATIC,
@@ -461,10 +563,21 @@ GtkWidget* create_main_window(AppState *state) {
     gtk_tree_view_append_column(GTK_TREE_VIEW(state->tree_view), column);
 
     gtk_container_add(GTK_CONTAINER(scrolled), state->tree_view);
-    gtk_box_pack_start(GTK_BOX(vbox), scrolled, TRUE, TRUE, 0);
+    gtk_paned_pack2(GTK_PANED(state->paned), scrolled, TRUE, TRUE);
 
-    // Create context menu for right-click
+    // Set paned position (250px for tree, rest for file list)
+    gtk_paned_set_position(GTK_PANED(state->paned), 250);
+
+    // Add paned to vbox
+    gtk_box_pack_start(GTK_BOX(vbox), state->paned, TRUE, TRUE, 0);
+
+    // Create context menus
     state->context_menu = create_file_context_menu(state);
+    state->empty_space_context_menu = create_empty_space_context_menu(state);
+    state->tree_context_menu = create_tree_context_menu(state);
+
+    // Populate directory tree with root
+    populate_tree_root(state);
 
     // Status bar
     state->status_bar = gtk_statusbar_new();
@@ -480,6 +593,278 @@ GtkWidget* create_main_window(AppState *state) {
 
     state->window = window;
     return window;
+}
+
+// Directory tree implementation
+
+// Recursive helper to find tree iter by directory ID
+static gboolean find_tree_iter_by_id(GtkTreeStore *store, GtkTreeIter *result,
+                                      GtkTreeIter *parent, int dir_id) {
+    GtkTreeIter iter;
+    gboolean valid;
+
+    if (parent) {
+        valid = gtk_tree_model_iter_children(GTK_TREE_MODEL(store), &iter, parent);
+    } else {
+        valid = gtk_tree_model_get_iter_first(GTK_TREE_MODEL(store), &iter);
+    }
+
+    while (valid) {
+        gint id;
+        gtk_tree_model_get(GTK_TREE_MODEL(store), &iter, 0, &id, -1);
+
+        if (id == dir_id) {
+            *result = iter;
+            return TRUE;
+        }
+
+        // Recursively search children
+        if (gtk_tree_model_iter_has_child(GTK_TREE_MODEL(store), &iter)) {
+            if (find_tree_iter_by_id(store, result, &iter, dir_id)) {
+                return TRUE;
+            }
+        }
+
+        valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(store), &iter);
+    }
+
+    return FALSE;
+}
+
+// Update tree selection to match current directory (exported to gui.h)
+void update_tree_selection(AppState *state) {
+    GtkTreeIter iter;
+
+    if (find_tree_iter_by_id(state->dir_tree_store, &iter, NULL, state->current_directory)) {
+        GtkTreeSelection *selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(state->tree_sidebar));
+
+        // Block signal to prevent navigation loop
+        g_signal_handlers_block_by_func(selection, G_CALLBACK(on_tree_cursor_changed), state);
+
+        gtk_tree_selection_select_iter(selection, &iter);
+
+        // Expand parent path and scroll to visible
+        GtkTreePath *path = gtk_tree_model_get_path(GTK_TREE_MODEL(state->dir_tree_store), &iter);
+        gtk_tree_view_expand_to_path(GTK_TREE_VIEW(state->tree_sidebar), path);
+        gtk_tree_view_scroll_to_cell(GTK_TREE_VIEW(state->tree_sidebar), path, NULL, FALSE, 0, 0);
+        gtk_tree_path_free(path);
+
+        // Unblock signal
+        g_signal_handlers_unblock_by_func(selection, G_CALLBACK(on_tree_cursor_changed), state);
+    }
+}
+
+// Load children for a directory node (lazy loading)
+static void load_tree_children(AppState *state, GtkTreeIter *parent_iter) {
+    gint parent_id;
+    gboolean is_loaded;
+
+    gtk_tree_model_get(GTK_TREE_MODEL(state->dir_tree_store), parent_iter,
+                      0, &parent_id,
+                      3, &is_loaded,
+                      -1);
+
+    // Skip if already loaded
+    if (is_loaded) {
+        return;
+    }
+
+    // Get directory listing
+    cJSON* resp_json = (cJSON*)client_list_dir_gui(state->conn, parent_id);
+    if (!resp_json) {
+        return;
+    }
+
+    cJSON* files = cJSON_GetObjectItem(resp_json, "files");
+    if (files) {
+        cJSON* file;
+        cJSON_ArrayForEach(file, files) {
+            int is_dir = cJSON_GetObjectItem(file, "is_directory")->valueint;
+
+            // Only add directories to tree
+            if (is_dir) {
+                int id = cJSON_GetObjectItem(file, "id")->valueint;
+                const char* name = cJSON_GetStringValue(cJSON_GetObjectItem(file, "name"));
+
+                GtkTreeIter child_iter;
+                gtk_tree_store_append(state->dir_tree_store, &child_iter, parent_iter);
+                gtk_tree_store_set(state->dir_tree_store, &child_iter,
+                    0, id,
+                    1, name,
+                    2, "folder",
+                    3, FALSE,        // Not loaded yet
+                    4, TRUE,         // Assume has children (will be verified on expand)
+                    -1);
+            }
+        }
+    }
+
+    // Mark parent as loaded
+    gtk_tree_store_set(state->dir_tree_store, parent_iter, 3, TRUE, -1);
+
+    cJSON_Delete(resp_json);
+}
+
+// Populate tree with root directory
+static void populate_tree_root(AppState *state) {
+    // Clear existing tree
+    gtk_tree_store_clear(state->dir_tree_store);
+
+    // Get root directory listing
+    cJSON* resp_json = (cJSON*)client_list_dir_gui(state->conn, state->current_directory);
+    if (!resp_json) {
+        return;
+    }
+
+    // Add current directory as root
+    GtkTreeIter root_iter;
+    gtk_tree_store_append(state->dir_tree_store, &root_iter, NULL);
+    gtk_tree_store_set(state->dir_tree_store, &root_iter,
+        0, state->current_directory,
+        1, "/",  // Root name
+        2, "folder",
+        3, FALSE,  // Not loaded yet
+        4, TRUE,   // Has children
+        -1);
+
+    // Load immediate children
+    load_tree_children(state, &root_iter);
+
+    // Expand and select root
+    GtkTreePath *root_path = gtk_tree_model_get_path(GTK_TREE_MODEL(state->dir_tree_store), &root_iter);
+    gtk_tree_view_expand_row(GTK_TREE_VIEW(state->tree_sidebar), root_path, FALSE);
+    gtk_tree_path_free(root_path);
+
+    update_tree_selection(state);
+}
+
+// Handle tree selection change (navigate to directory)
+static void on_tree_cursor_changed(GtkTreeSelection *selection, AppState *state) {
+    GtkTreeModel *model;
+    GtkTreeIter iter;
+
+    if (!gtk_tree_selection_get_selected(selection, &model, &iter)) {
+        return;
+    }
+
+    gint dir_id;
+    gtk_tree_model_get(model, &iter, 0, &dir_id, -1);
+
+    // If already at this directory, do nothing
+    if (dir_id == state->current_directory) {
+        return;
+    }
+
+    // Save current directory to history
+    history_push(&state->history, state->current_directory, state->current_path);
+
+    // Navigate to selected directory
+    if (client_cd(state->conn, dir_id) == 0) {
+        state->current_directory = dir_id;
+        strcpy(state->current_path, state->conn->current_path);
+        refresh_file_list(state);
+
+        // Update status bar
+        guint context_id = gtk_statusbar_get_context_id(
+            GTK_STATUSBAR(state->status_bar), "status");
+        char status[256];
+        snprintf(status, sizeof(status), "Current: %s", state->current_path);
+        gtk_statusbar_push(GTK_STATUSBAR(state->status_bar), context_id, status);
+
+        // Enable back button
+        gtk_widget_set_sensitive(state->back_button, TRUE);
+    } else {
+        // Navigation failed, restore previous selection
+        int dummy_id;
+        char dummy_path[512];
+        history_pop(&state->history, &dummy_id, dummy_path);
+        update_tree_selection(state);
+    }
+}
+
+// Handle tree row expansion (lazy load children)
+static void on_tree_row_expanded(GtkTreeView *tree_view, GtkTreeIter *iter,
+                                  GtkTreePath *path, AppState *state) {
+    (void)tree_view;
+    (void)path;
+
+    load_tree_children(state, iter);
+}
+
+// Create context menu for tree operations
+static GtkWidget* create_tree_context_menu(AppState *state) {
+    GtkWidget *menu = gtk_menu_new();
+
+    // New Folder
+    GtkWidget *mkdir_item = gtk_menu_item_new_with_label("New Folder...");
+    g_signal_connect(mkdir_item, "activate", G_CALLBACK(on_mkdir_clicked), state);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), mkdir_item);
+
+    // Separator
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), gtk_separator_menu_item_new());
+
+    // Delete
+    GtkWidget *delete_item = gtk_menu_item_new_with_label("Delete");
+    g_signal_connect(delete_item, "activate", G_CALLBACK(on_delete_clicked), state);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), delete_item);
+
+    gtk_widget_show_all(menu);
+    return menu;
+}
+
+// Handle right-click on tree
+static gboolean on_tree_sidebar_button_press(GtkWidget *widget, GdkEventButton *event, AppState *state) {
+    if (event->button == 3 && event->type == GDK_BUTTON_PRESS) {
+        GtkTreePath *path;
+        if (gtk_tree_view_get_path_at_pos(GTK_TREE_VIEW(widget),
+                                          event->x, event->y,
+                                          &path, NULL, NULL, NULL)) {
+            // Select the row
+            GtkTreeSelection *selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(widget));
+            gtk_tree_selection_select_path(selection, path);
+            gtk_tree_path_free(path);
+
+            // Show context menu
+            gtk_menu_popup_at_pointer(GTK_MENU(state->tree_context_menu), (GdkEvent*)event);
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+// Add directory to tree under current directory (exported to gui.h)
+void add_directory_to_tree(AppState *state, int dir_id, const char *name) {
+    GtkTreeIter parent_iter;
+
+    // Find parent directory in tree (current directory)
+    if (find_tree_iter_by_id(state->dir_tree_store, &parent_iter, NULL, state->current_directory)) {
+        // Add new directory as child
+        GtkTreeIter child_iter;
+        gtk_tree_store_append(state->dir_tree_store, &child_iter, &parent_iter);
+        gtk_tree_store_set(state->dir_tree_store, &child_iter,
+            0, dir_id,
+            1, name,
+            2, "folder",
+            3, FALSE,  // Not loaded yet
+            4, TRUE,   // May have children
+            -1);
+
+        // Expand parent to show new directory
+        GtkTreePath *parent_path = gtk_tree_model_get_path(GTK_TREE_MODEL(state->dir_tree_store), &parent_iter);
+        gtk_tree_view_expand_row(GTK_TREE_VIEW(state->tree_sidebar), parent_path, FALSE);
+        gtk_tree_path_free(parent_path);
+    }
+}
+
+// Remove directory from tree (exported to gui.h)
+void remove_directory_from_tree(AppState *state, int dir_id) {
+    GtkTreeIter iter;
+
+    // Find directory in tree
+    if (find_tree_iter_by_id(state->dir_tree_store, &iter, NULL, dir_id)) {
+        // Remove from tree
+        gtk_tree_store_remove(state->dir_tree_store, &iter);
+    }
 }
 
 void show_search_results_dialog(GtkWidget *parent, cJSON *results, const char *pattern, int recursive) {

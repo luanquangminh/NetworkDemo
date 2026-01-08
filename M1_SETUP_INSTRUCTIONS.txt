@@ -1,0 +1,119 @@
+═══════════════════════════════════════════════════════════════
+  M1 MAC AIR SETUP INSTRUCTIONS (Sequoia 15.4.1)
+═══════════════════════════════════════════════════════════════
+
+✅ GOOD NEWS: The DMG is fully compatible with your M1 Mac!
+   - ARM64 native binary (no Rosetta 2 needed)
+   - Supports macOS 15.4.1 Sequoia
+   - No OS update required
+
+═══════════════════════════════════════════════════════════════
+
+STEP 1: INSTALL GTK+ 4 (REQUIRED)
+─────────────────────────────────
+
+On your M1 Mac Air, open Terminal and run:
+
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+    brew install gtk4
+
+This will install the required GUI framework.
+
+
+STEP 2: TRANSFER THE DMG
+─────────────────────────
+
+Option A - AirDrop:
+  1. On this Mac: Right-click NetworkFileManager.dmg → Share → AirDrop
+  2. Select your M1 Mac Air
+  3. Accept the transfer on your M1 Mac
+
+Option B - USB Drive:
+  1. Copy NetworkFileManager.dmg to USB
+  2. Plug USB into M1 Mac
+  3. Copy DMG to Downloads folder
+
+Option C - Cloud Storage:
+  1. Upload DMG to Google Drive/Dropbox
+  2. Download on M1 Mac
+
+
+STEP 3: INSTALL THE APP
+───────────────────────
+
+On your M1 Mac Air:
+
+  1. Double-click NetworkFileManager.dmg
+  2. Drag "NetworkFileManager.app" to Applications folder
+  3. Eject the DMG
+
+
+STEP 4: FIRST LAUNCH (Security)
+────────────────────────────────
+
+Since the app isn't code-signed:
+
+  1. Go to Applications folder
+  2. RIGHT-CLICK "NetworkFileManager.app"
+  3. Select "Open" from menu
+  4. Click "Open" in the security dialog
+  5. App will launch successfully
+
+⚠️  Do NOT just double-click - use Right-Click → Open
+
+
+STEP 5: CONNECT TO SERVER
+──────────────────────────
+
+  1. Enter Server IP: _________________ (ask admin)
+  2. Enter Port: 8080 (default)
+  3. Click "Connect"
+  4. Login with your credentials
+
+
+═══════════════════════════════════════════════════════════════
+
+TROUBLESHOOTING:
+────────────────
+
+Problem: "NetworkFileManager.app is damaged"
+Solution:
+  xattr -cr /Applications/NetworkFileManager.app
+
+Problem: GTK warning messages
+Solution:
+  brew reinstall gtk4
+
+Problem: App won't launch
+Solution:
+  1. Check GTK4 is installed: brew list gtk4
+  2. Check app permissions: ls -l /Applications/NetworkFileManager.app
+  3. Try running from Terminal:
+     /Applications/NetworkFileManager.app/Contents/MacOS/NetworkFileManager
+
+
+VERIFY INSTALLATION:
+───────────────────
+
+Check architecture (should show arm64):
+  file /Applications/NetworkFileManager.app/Contents/MacOS/NetworkFileManager
+
+Expected output:
+  Mach-O 64-bit executable arm64
+
+
+═══════════════════════════════════════════════════════════════
+
+SYSTEM REQUIREMENTS:
+────────────────────
+
+✅ Your M1 Mac Air meets all requirements:
+   - Processor: M1 (ARM64) ✓
+   - macOS: Sequoia 15.4.1 ✓ (minimum 10.13)
+   - Architecture: Apple Silicon ✓
+
+
+═══════════════════════════════════════════════════════════════
+           Ready to use on your M1 Mac Air! 🚀
+═══════════════════════════════════════════════════════════════

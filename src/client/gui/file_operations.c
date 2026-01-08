@@ -48,6 +48,9 @@ void refresh_file_list(AppState *state) {
     }
 
     cJSON_Delete(resp_json);
+
+    // Sync tree selection with current directory
+    update_tree_selection(state);
 }
 
 void on_row_activated(GtkTreeView *tree_view, GtkTreePath *path,
@@ -183,8 +186,15 @@ void on_mkdir_clicked(GtkWidget *widget, AppState *state) {
         const char *name = gtk_entry_get_text(GTK_ENTRY(entry));
 
         if (strlen(name) > 0) {
-            if (client_mkdir(state->conn, name) == 0) {
+            int new_dir_id = client_mkdir(state->conn, name);
+            if (new_dir_id >= 0) {
                 show_info_dialog(state->window, "Directory created successfully!");
+
+                // Add to tree immediately if we got the ID
+                if (new_dir_id > 0) {
+                    add_directory_to_tree(state, new_dir_id, name);
+                }
+
                 refresh_file_list(state);
             } else {
                 show_error_dialog(state->window, "Failed to create directory");
@@ -210,7 +220,11 @@ void on_delete_clicked(GtkWidget *widget, AppState *state) {
 
     gint file_id;
     gchar *name;
-    gtk_tree_model_get(model, &iter, 0, &file_id, 2, &name, -1);
+    gchar *type;
+    gtk_tree_model_get(model, &iter, 0, &file_id, 2, &name, 3, &type, -1);
+
+    // Check if it's a directory
+    int is_directory = (strcmp(type, "Directory") == 0);
 
     // Confirmation dialog
     GtkWidget *dialog = gtk_message_dialog_new(
@@ -230,6 +244,12 @@ void on_delete_clicked(GtkWidget *widget, AppState *state) {
     if (response == GTK_RESPONSE_YES) {
         if (client_delete(state->conn, file_id) == 0) {
             show_info_dialog(state->window, "File deleted successfully!");
+
+            // Remove from tree if it's a directory
+            if (is_directory) {
+                remove_directory_from_tree(state, file_id);
+            }
+
             refresh_file_list(state);
         } else {
             show_error_dialog(state->window, "Failed to delete file");
@@ -237,6 +257,7 @@ void on_delete_clicked(GtkWidget *widget, AppState *state) {
     }
 
     g_free(name);
+    g_free(type);
 }
 
 void on_chmod_clicked(GtkWidget *widget, AppState *state) {
@@ -353,8 +374,9 @@ void on_copy_clicked(GtkWidget *widget, AppState *state) {
     state->clipboard_file_name[sizeof(state->clipboard_file_name) - 1] = '\0';
     state->has_clipboard_data = 1;
 
-    // Enable paste menu item
+    // Enable paste menu items (both file context menu and empty space context menu)
     gtk_widget_set_sensitive(state->paste_menu_item, TRUE);
+    gtk_widget_set_sensitive(state->empty_space_paste_item, TRUE);
 
     // Update status bar
     guint context_id = gtk_statusbar_get_context_id(
@@ -387,8 +409,9 @@ void on_paste_clicked(GtkWidget *widget, AppState *state) {
         state->clipboard_file_id = 0;
         state->clipboard_file_name[0] = '\0';
 
-        // Disable paste menu item
+        // Disable paste menu items (both file context menu and empty space context menu)
         gtk_widget_set_sensitive(state->paste_menu_item, FALSE);
+        gtk_widget_set_sensitive(state->empty_space_paste_item, FALSE);
 
         // Update status bar
         guint context_id = gtk_statusbar_get_context_id(

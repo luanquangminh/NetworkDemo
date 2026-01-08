@@ -1,0 +1,144 @@
+═══════════════════════════════════════════════════════════
+  NETWORK FILE MANAGER - QUICK SETUP FROM GIT CLONE
+═══════════════════════════════════════════════════════════
+
+✅ YES, IT WORKS WITHOUT THE .db FILE!
+
+The database is automatically created on first run.
+
+═══════════════════════════════════════════════════════════
+
+🚀 QUICK START (3 Commands):
+────────────────────────────
+
+1. git clone <repo-url> && cd networkFinal
+2. make
+3. ./build/server 8080
+
+Done! Server is running with default admin account.
+
+
+🔐 DEFAULT LOGIN:
+─────────────────
+
+Username: admin
+Password: admin
+
+⚠️  Change this after first login!
+
+
+📋 WHAT HAPPENS AUTOMATICALLY:
+──────────────────────────────
+
+✓ Creates fileshare.db (new empty database)
+✓ Runs src/database/db_init.sql
+✓ Creates users, files, activity_logs tables
+✓ Inserts default admin user
+✓ Creates root directory
+✓ Server ready on port 8080
+
+
+📁 WHAT'S IN GIT vs. WHAT'S CREATED:
+────────────────────────────────────
+
+In Git (tracked):
+  ✓ src/database/db_init.sql    ← Initialization script
+  ✓ Source code (.c, .h files)
+  ✓ Makefile
+
+NOT in Git (auto-created):
+  ✗ fileshare.db                ← Your database
+  ✗ storage/*                   ← Uploaded files
+  ✗ server.log                  ← Server logs
+  ✗ build/*                     ← Compiled binaries
+
+
+🔄 DATABASE INITIALIZATION FLOW:
+────────────────────────────────
+
+./build/server
+    ↓
+db_init("fileshare.db")
+    ↓
+Creates new SQLite database
+    ↓
+db_init_schema(db, "src/database/db_init.sql")
+    ↓
+Executes SQL:
+  • CREATE TABLE users
+  • CREATE TABLE files
+  • CREATE TABLE activity_logs
+  • INSERT default admin
+  • CREATE indexes
+    ↓
+Server ready! ✅
+
+
+🧪 TEST IT YOURSELF:
+────────────────────
+
+# Delete database
+rm fileshare.db
+
+# Run server
+./build/server 8080
+
+# Server output shows:
+# "Database schema initialized"
+# "Server started on port 8080"
+
+# Connect with client
+./build/client 127.0.0.1 8080
+
+# Login works!
+login admin admin
+
+
+📊 DATABASE CONTENTS (After Init):
+───────────────────────────────────
+
+Table: users
+  └─ 1 row: admin (password: admin)
+
+Table: files
+  └─ 1 row: root directory (/)
+
+Table: activity_logs
+  └─ 0 rows (will fill as users login)
+
+
+🌐 FOR REMOTE CLIENTS:
+──────────────────────
+
+1. Find server IP:
+   ifconfig | grep "inet "
+
+2. Share with clients:
+   Server: 192.168.1.10 (your IP)
+   Port: 8080
+   User: admin
+   Pass: admin
+
+
+❓ FAQ:
+──────
+
+Q: Do I need to create the database manually?
+A: No! It's automatic.
+
+Q: Can others connect after git clone?
+A: Yes! Everyone gets the same auto-init.
+
+Q: Where are user passwords stored?
+A: In fileshare.db (SHA256 hashed)
+
+Q: Is the .db file in git?
+A: No, it's in .gitignore (user data)
+
+Q: What if I want to reset everything?
+A: rm fileshare.db && ./build/server 8080
+
+
+═══════════════════════════════════════════════════════════
+         Database auto-initializes - just run it! 🎉
+═══════════════════════════════════════════════════════════

@@ -202,8 +202,21 @@ int client_mkdir(ClientConnection* conn, const char* name) {
     if (!response) return -1;
 
     if (response->command == CMD_SUCCESS) {
+        // Parse response to get new directory ID
+        cJSON* resp_json = cJSON_Parse(response->payload);
+        if (resp_json) {
+            cJSON* dir_id_obj = cJSON_GetObjectItem(resp_json, "directory_id");
+            if (dir_id_obj) {
+                result = dir_id_obj->valueint;  // Return the new directory ID
+                printf("Directory '%s' created successfully with ID %d\n", name, result);
+            } else {
+                result = 0;  // Fallback to 0 for success
+            }
+            cJSON_Delete(resp_json);
+        } else {
+            result = 0;  // Fallback to 0 for success
+        }
         printf("Directory '%s' created successfully\n", name);
-        result = 0;
     } else {
         cJSON* resp_json = cJSON_Parse(response->payload);
         if (resp_json) {
