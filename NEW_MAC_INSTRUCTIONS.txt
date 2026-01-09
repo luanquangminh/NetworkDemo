@@ -1,0 +1,129 @@
+═══════════════════════════════════════════════════════════════════
+  NETWORK FILE MANAGER - NEW MAC SETUP (5 MINUTES)
+═══════════════════════════════════════════════════════════════════
+
+You need 2 files:
+  1. NetworkFileManager.dmg (the app)
+  2. setup_new_mac_client.sh (this setup script)
+
+
+📋 QUICK SETUP (COPY THESE COMMANDS):
+─────────────────────────────────────
+
+Step 1: Open Terminal
+  → Applications → Utilities → Terminal
+
+Step 2: Install Homebrew (if not installed)
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+Step 3: For M1/M2 Macs only, run:
+  echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+
+Step 4: Install GTK4
+  brew install gtk4
+
+Step 5: Install the app
+  • Double-click NetworkFileManager.dmg
+  • Drag NetworkFileManager.app to Applications folder
+  • Eject DMG
+
+Step 6: Remove security block
+  sudo xattr -cr /Applications/NetworkFileManager.app
+
+Step 7: Launch (DON'T DOUBLE-CLICK!)
+  • Go to Applications
+  • RIGHT-CLICK NetworkFileManager.app
+  • Select "Open"
+  • Click "Open" in dialog
+
+
+🎯 CONNECTION INFO:
+───────────────────
+
+Server IP:  192.168.1.71
+Port:       8080
+Username:   admin
+Password:   admin
+
+
+⚡ AUTOMATED SETUP (EASIER):
+────────────────────────────
+
+If you have both files (DMG + setup script):
+
+1. Double-click NetworkFileManager.dmg
+2. Drag app to Applications
+3. Open Terminal
+4. Run: chmod +x setup_new_mac_client.sh
+5. Run: ./setup_new_mac_client.sh
+
+
+🔍 WHAT GETS INSTALLED:
+───────────────────────
+
+✓ Homebrew (package manager) - ~300 MB
+✓ GTK4 (GUI library) - ~200 MB
+✓ NetworkFileManager app - 1 MB
+
+Total: ~500 MB
+Time: 5-10 minutes
+
+
+⚠️ TROUBLESHOOTING:
+───────────────────
+
+Problem: "Command not found: brew"
+→ Install Homebrew (see Step 2)
+
+Problem: "App is damaged"
+→ Run: sudo xattr -cr /Applications/NetworkFileManager.app
+
+Problem: "Can't connect to server"
+→ Check WiFi (must be same network as server)
+→ Verify Server IP: 192.168.1.71
+
+Problem: GTK warning when launching
+→ Run: brew reinstall gtk4
+
+
+✅ VERIFY INSTALLATION:
+───────────────────────
+
+After setup, test:
+  pkg-config --modversion gtk4
+  # Should show: 4.x.x
+
+  ls /Applications/NetworkFileManager.app
+  # Should show: /Applications/NetworkFileManager.app
+
+
+🎓 FOR COMPLETE BEGINNERS:
+──────────────────────────
+
+1. Terminal = black window for typing commands
+   Find it: Spotlight (⌘+Space) → type "Terminal"
+
+2. Copy command = Select text → ⌘+C
+   Paste in Terminal = ⌘+V → Press Enter
+
+3. When asked for password = your Mac login password
+   (Nothing appears when typing - this is normal!)
+
+4. "Right-click" = Two-finger click on trackpad
+   Or: Control+Click
+
+
+📞 NEED HELP?
+─────────────
+
+If stuck, send screenshot of:
+  • The error message
+  • Terminal output
+  • macOS version (About This Mac)
+
+
+═══════════════════════════════════════════════════════════════════
+                       Setup takes 5-10 minutes
+                     Brand new Mac - no problem!
+═══════════════════════════════════════════════════════════════════

@@ -1,0 +1,102 @@
+# ============================================================================
+# Docker Compose Configuration for File Sharing Server
+# ============================================================================
+# This configuration provides easy orchestration of the file sharing server
+# with persistent storage, database, and proper networking for host clients.
+#
+# Usage:
+#   docker-compose up -d          # Start in background
+#   docker-compose down           # Stop and remove
+#   docker-compose logs -f        # View logs
+#   docker-compose restart        # Restart server
+# ============================================================================
+
+version: '3.8'
+
+services:
+  # File sharing server service
+  fileshare-server:
+    # Build configuration
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILDPLATFORM: linux/amd64  # Change to linux/arm64 for M1/M2 Macs
+
+    # Container name
+    container_name: fileshare-server
+
+    # Image name
+    image: fileshare-server:latest
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Port mapping - expose server to host
+    ports:
+      - "3000:3000"  # Host:Container
+
+    # Volume mounts for persistence
+    volumes:
+      # Database persistence
+      - ./data:/app/data
+
+      # File storage persistence
+      - ./storage:/app/storage
+
+      # Logs (optional, for debugging)
+      - ./logs:/app/logs
+
+      # Database initialization SQL (read-only)
+      - ./src/database/db_init.sql:/app/db_init.sql:ro
+
+    # Environment variables
+    environment:
+      # Server configuration
+      - SERVER_PORT=3000
+      - DB_PATH=/app/data/fileshare.db
+      - STORAGE_PATH=/app/storage
+      - LOG_LEVEL=INFO
+
+      # Optional: Admin user configuration
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=admin
+
+    # Network mode - bridge allows host to container communication
+    networks:
+      - fileshare-network
+
+    # Health check
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 sh -c 'echo \"\" | nc -z localhost 3000' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    # Resource limits (optional, adjust as needed)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+# Network configuration
+networks:
+  fileshare-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# Volume definitions (optional, for named volumes)
+volumes:
+  data:
+    driver: local
+  storage:
+    driver: local
+  logs:
+    driver: local

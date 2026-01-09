@@ -1,0 +1,94 @@
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║          NETWORK FILE MANAGER - DEMO CONNECTION              ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+
+┌───────────────────────────────────────────────────────────────┐
+│ CONNECTION INFORMATION                                        │
+└───────────────────────────────────────────────────────────────┘
+
+  Server IP:  _______________________  ← Write your IP here
+
+  Port:       8080
+
+  Username:   admin
+
+  Password:   admin
+
+
+┌───────────────────────────────────────────────────────────────┐
+│ QUICK START                                                   │
+└───────────────────────────────────────────────────────────────┘
+
+  1. Launch NetworkFileManager app
+
+  2. Enter Server IP and Port
+
+  3. Click "Connect"
+
+  4. Login with admin/admin
+
+  5. Start managing files!
+
+
+┌───────────────────────────────────────────────────────────────┐
+│ FEATURES TO TRY                                               │
+└───────────────────────────────────────────────────────────────┘
+
+  ✓ Upload files                    Click "Upload" button
+
+  ✓ Download files                  Select file → "Download"
+
+  ✓ Create directories              Click "Mkdir" button
+
+  ✓ Search files                    Click "Search" → *.txt
+
+  ✓ Move files                      Drag and drop
+
+  ✓ File operations                 Right-click context menu
+
+  ✓ User management (admin)         Admin dashboard
+
+
+┌───────────────────────────────────────────────────────────────┐
+│ WILDCARD SEARCH EXAMPLES                                      │
+└───────────────────────────────────────────────────────────────┘
+
+  *.txt             All text files
+
+  report*           Files starting with "report"
+
+  *2024*            Files containing "2024"
+
+  document.???      document.txt, document.pdf, etc.
+
+
+┌───────────────────────────────────────────────────────────────┐
+│ TROUBLESHOOTING                                               │
+└───────────────────────────────────────────────────────────────┘
+
+  Can't connect?
+  → Check WiFi (must be same network as server)
+  → Verify Server IP is correct
+
+  App won't open?
+  → Run: sudo xattr -cr /Applications/NetworkFileManager.app
+
+  Permission denied?
+  → Contact admin for proper credentials
+
+
+┌───────────────────────────────────────────────────────────────┐
+│ SYSTEM REQUIREMENTS                                           │
+└───────────────────────────────────────────────────────────────┘
+
+  • macOS 11.0 (Big Sur) or later
+  • GTK4 (brew install gtk4)
+  • Network connection to server
+
+
+╔═══════════════════════════════════════════════════════════════╗
+║  GitHub: github.com/luanquangminh/networkfinaltest            ║
+║  Built with: C, GTK4, SQLite, POSIX Sockets                   ║
+╚═══════════════════════════════════════════════════════════════╝

@@ -1,0 +1,178 @@
+═══════════════════════════════════════════════════════════════════
+  NETWORK FILE MANAGER - DEMO QUICK START
+═══════════════════════════════════════════════════════════════════
+
+📦 BEFORE DEMO DAY:
+───────────────────
+
+1. Prepare Demo Machines
+   • Install NetworkFileManager.app on all demo Macs
+   • Run: brew install gtk4
+   • Run: sudo xattr -cr /Applications/NetworkFileManager.app
+   • Test launch once
+
+2. Prepare Demo Files
+   • Create sample files to upload
+   • Prepare folders to organize
+   • Have images, PDFs, text files ready
+
+
+🚀 ON DEMO DAY (5 MINUTES SETUP):
+─────────────────────────────────
+
+SERVER SETUP:
+━━━━━━━━━━━━
+
+1. Start Server:
+   cd /path/to/networkFinal
+   ./start_demo_server.sh
+
+2. Note the Server IP (shown in terminal)
+   Example: 192.168.1.100
+
+3. Write Server IP on whiteboard/slide
+
+4. Keep server terminal visible
+
+
+CLIENT SETUP (On each demo Mac):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Ensure same WiFi as server
+
+2. Launch: NetworkFileManager app
+
+3. Enter:
+   Server IP:  [Your IP from step 2]
+   Port:       8080
+
+4. Login:
+   Username:   admin
+   Password:   admin
+
+
+✅ VERIFY BEFORE STARTING:
+──────────────────────────
+
+□ Server terminal shows "Waiting for connections..."
+□ All demo Macs connected to same WiFi
+□ Test connection from one client
+□ Server terminal shows client connection
+□ Connection info visible to audience
+
+
+🎤 DEMO FLOW (5 MINUTES):
+──────────────────────────
+
+1. INTRODUCTION (30 sec)
+   → Show server terminal with IP
+   → Explain multi-client architecture
+
+2. CONNECT CLIENT (30 sec)
+   → Launch GUI
+   → Enter connection details
+   → Show successful login
+
+3. FILE OPERATIONS (1 min)
+   → Upload a file
+   → Create directory
+   → Navigate folders
+   → Show file owner
+
+4. MULTI-CLIENT DEMO (1 min)
+   → Connect 2nd client (different Mac)
+   → Show both see same files
+   → One uploads, other refreshes
+
+5. SEARCH (30 sec)
+   → Search with: *.txt
+   → Show results list
+
+6. ADVANCED (1 min)
+   → Drag & drop file
+   → Right-click menu
+   → Admin dashboard
+
+7. Q&A (Remaining time)
+
+
+🔥 TROUBLESHOOTING:
+──────────────────
+
+Problem: Client can't connect
+→ Check: Same WiFi? Server running? Correct IP?
+
+Problem: "Damaged" error
+→ Run: sudo xattr -cr /Applications/NetworkFileManager.app
+
+Problem: Server crash
+→ Restart: ./start_demo_server.sh
+
+Problem: GTK4 error
+→ Run: brew install gtk4
+
+
+💡 DEMO TIPS:
+─────────────
+
+✓ Arrive 30 minutes early
+✓ Test full flow before audience arrives
+✓ Have backup plan (localhost demo)
+✓ Keep server terminal visible
+✓ Explain what you're doing
+✓ Stay calm if issues arise
+✓ Show enthusiasm!
+
+
+📋 WHAT TO SHOW:
+────────────────
+
+MUST SHOW:
+• Multi-client connections (2+ clients)
+• File upload/download
+• Directory operations
+• Real-time updates between clients
+
+NICE TO SHOW:
+• Search functionality
+• Drag & drop
+• Right-click menu
+• Admin dashboard
+• Activity logging
+
+
+🎯 SUCCESS CRITERIA:
+────────────────────
+
+✓ At least 2 clients connected
+✓ File uploaded successfully
+✓ Clients see each other's changes
+✓ No crashes
+✓ Audience engaged
+✓ Questions answered
+
+
+═══════════════════════════════════════════════════════════════════
+
+QUICK COMMANDS:
+──────────────
+
+# Server side:
+./start_demo_server.sh
+
+# Find IP manually:
+ifconfig | grep "inet " | grep -v 127.0.0.1
+
+# Check server running:
+lsof -i :8080
+
+# Client test:
+nc -zv [SERVER_IP] 8080
+
+# Launch GUI:
+open /Applications/NetworkFileManager.app
+
+
+═══════════════════════════════════════════════════════════════════
+                         Good luck! 🎉
+═══════════════════════════════════════════════════════════════════

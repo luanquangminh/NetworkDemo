@@ -31,7 +31,9 @@ GUI_CLIENT_BIN = $(BUILD)/gui_client
         run-server run-client run-gui run-both \
         stop-server stop-client stop-gui stop-all \
         restart-server restart-gui restart-all \
-        status check-deps help
+        status check-deps help \
+        docker-build docker-run docker-stop docker-restart \
+        docker-logs docker-clean docker-shell docker-status
 
 # ============================================================================
 # Default target
@@ -243,6 +245,16 @@ help:
 	@echo "  make restart-all     - Restart all processes"
 	@echo "  make status          - Show running process status"
 	@echo ""
+	@echo "DOCKER TARGETS:"
+	@echo "  make docker-build    - Build Docker image"
+	@echo "  make docker-run      - Run server in Docker container"
+	@echo "  make docker-stop     - Stop Docker container"
+	@echo "  make docker-restart  - Restart Docker container"
+	@echo "  make docker-logs     - View Docker container logs"
+	@echo "  make docker-clean    - Remove Docker container and image"
+	@echo "  make docker-shell    - Open shell in running container"
+	@echo "  make docker-status   - Show Docker container status"
+	@echo ""
 	@echo "MAINTENANCE TARGETS:"
 	@echo "  make clean           - Remove all build artifacts"
 	@echo "  make check-deps      - Verify required dependencies"
@@ -253,3 +265,65 @@ help:
 	@echo "  DEFAULT_HOST=$(DEFAULT_HOST)"
 	@echo ""
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# ============================================================================
+# Docker targets
+# ============================================================================
+
+# Docker configuration
+DOCKER_IMAGE = fileshare-server
+DOCKER_TAG = latest
+DOCKER_CONTAINER = fileshare-server
+
+docker-build:
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Building Docker Image"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	@echo "✓ Docker image built: $(DOCKER_IMAGE):$(DOCKER_TAG)"
+	@echo ""
+
+docker-run:
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Starting Docker Container"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@mkdir -p data storage logs
+	@docker-compose up -d
+	@echo "✓ Container started: $(DOCKER_CONTAINER)"
+	@echo "✓ Server accessible at localhost:3000"
+	@echo ""
+	@echo "Use 'make docker-logs' to view logs"
+	@echo "Use 'make docker-stop' to stop the container"
+
+docker-stop:
+	@echo "Stopping Docker container..."
+	@docker-compose down
+	@echo "✓ Container stopped"
+
+docker-restart:
+	@echo "Restarting Docker container..."
+	@docker-compose restart
+	@echo "✓ Container restarted"
+
+docker-logs:
+	@echo "Showing Docker container logs (Ctrl+C to exit)..."
+	@docker-compose logs -f
+
+docker-clean:
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Cleaning Docker Resources"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@docker-compose down -v
+	@docker rmi $(DOCKER_IMAGE):$(DOCKER_TAG) 2>/dev/null || true
+	@echo "✓ Docker resources cleaned"
+
+docker-shell:
+	@echo "Opening shell in running container..."
+	@docker exec -it $(DOCKER_CONTAINER) /bin/bash
+
+docker-status:
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Docker Container Status"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@docker ps -a --filter "name=$(DOCKER_CONTAINER)" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+	@echo ""

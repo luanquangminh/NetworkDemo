@@ -1,0 +1,118 @@
+# ============================================================================
+# Docker Ignore File
+# ============================================================================
+# Excludes unnecessary files from Docker build context to:
+#   - Reduce image size
+#   - Speed up build times
+#   - Avoid including sensitive or temporary files
+# ============================================================================
+
+# Build artifacts
+build/
+*.o
+*.a
+*.so
+*.dylib
+
+# Database files (will be mounted as volumes)
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Storage directory (will be mounted as volume)
+storage/
+
+# Logs
+*.log
+logs/
+
+# Git files
+.git/
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Test files
+tests/
+test_*.c
+test_*.sh
+*_test.c
+*_test.sh
+
+# Demo and setup scripts (not needed in container)
+*.sh
+!docker-entrypoint.sh
+*.dmg
+*.app/
+
+# Plan and report files
+plans/
+*_GUIDE.md
+*_INSTRUCTIONS.txt
+*_REPORT.md
+*_ARTICLE.md
+*_DOCUMENTATION.md
+*_SUMMARY.md
+PROJECT_*.md
+DEMO_*.txt
+DEMO_*.md
+
+# Client binaries (only server needed)
+build/client
+build/gui_client
+
+# macOS specific
+.DS_Store
+*.app
+*.dmg
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Configuration files for host development
+.env
+.env.local
+*.local
+
+# Test executables
+find_password
+test_admin_api
+test_direct_login
+test_hash
+
+# Node modules (if any)
+node_modules/
+
+# Python cache (if any)
+__pycache__/
+*.pyc
+*.pyo
+
+# Backup files
+*.bak
+*.backup
+
+# Docker files themselves
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+.travis.yml
