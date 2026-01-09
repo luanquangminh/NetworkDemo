@@ -1052,8 +1052,53 @@ void on_search_clicked(GtkWidget *widget, AppState *state) {
     cJSON *results = (cJSON*)client_search(state->conn, pattern, recursive, 100);
 
     if (results) {
-        // Show results in dialog
-        show_search_results_dialog(state->window, results, pattern, recursive);
+        // Clear current file list
+        gtk_list_store_clear(state->file_store);
+
+        // Get results array (note: server returns "results" not "files")
+        cJSON *results_array = cJSON_GetObjectItem(results, "results");
+        cJSON *count_obj = cJSON_GetObjectItem(results, "count");
+        int count = count_obj ? count_obj->valueint : 0;
+
+        if (results_array && cJSON_IsArray(results_array)) {
+            // Populate file list with search results
+            cJSON *file;
+            cJSON_ArrayForEach(file, results_array) {
+                int id = cJSON_GetObjectItem(file, "id")->valueint;
+                int is_dir = cJSON_GetObjectItem(file, "is_directory")->valueint;
+                const char *name = cJSON_GetStringValue(cJSON_GetObjectItem(file, "name"));
+                int size = cJSON_GetObjectItem(file, "size")->valueint;
+                int perms = cJSON_GetObjectItem(file, "permissions")->valueint;
+
+                // Get owner
+                const char *owner = "unknown";
+                cJSON *owner_obj = cJSON_GetObjectItem(file, "owner");
+                if (owner_obj) {
+                    owner = cJSON_GetStringValue(owner_obj);
+                }
+
+                GtkTreeIter iter;
+                gtk_list_store_append(state->file_store, &iter);
+                gtk_list_store_set(state->file_store, &iter,
+                    0, id,
+                    1, is_dir ? "folder" : "text-x-generic",
+                    2, name,
+                    3, is_dir ? "Directory" : "File",
+                    4, owner,
+                    5, is_dir ? 0 : size,
+                    6, g_strdup_printf("%03o", perms),
+                    -1);
+            }
+        }
+
+        // Update status bar with search results count
+        guint context_id = gtk_statusbar_get_context_id(
+            GTK_STATUSBAR(state->status_bar), "status");
+        char status[256];
+        snprintf(status, sizeof(status), "Search: %d file(s) found for '%s'%s",
+                 count, pattern, recursive ? " (recursive)" : "");
+        gtk_statusbar_push(GTK_STATUSBAR(state->status_bar), context_id, status);
+
         cJSON_Delete(results);
     } else {
         show_error_dialog(state->window, "Search failed. Please try again.");

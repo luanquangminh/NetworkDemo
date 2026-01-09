@@ -137,32 +137,60 @@ void on_download_clicked(GtkWidget *widget, AppState *state) {
 
     gint file_id;
     gchar *name;
-    gtk_tree_model_get(model, &iter, 0, &file_id, 2, &name, -1);
+    gchar *type;
+    gtk_tree_model_get(model, &iter, 0, &file_id, 2, &name, 3, &type, -1);
 
-    GtkWidget *dialog = gtk_file_chooser_dialog_new(
-        "Save File",
-        GTK_WINDOW(state->window),
-        GTK_FILE_CHOOSER_ACTION_SAVE,
-        "_Cancel", GTK_RESPONSE_CANCEL,
-        "_Save", GTK_RESPONSE_ACCEPT,
-        NULL
-    );
+    // Check if it's a directory
+    int is_directory = (strcmp(type, "Directory") == 0);
 
-    gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), name);
+    GtkWidget *dialog;
+    if (is_directory) {
+        dialog = gtk_file_chooser_dialog_new(
+            "Select Download Location for Folder",
+            GTK_WINDOW(state->window),
+            GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER,
+            "_Cancel", GTK_RESPONSE_CANCEL,
+            "_Select", GTK_RESPONSE_ACCEPT,
+            NULL
+        );
+    } else {
+        dialog = gtk_file_chooser_dialog_new(
+            "Save File",
+            GTK_WINDOW(state->window),
+            GTK_FILE_CHOOSER_ACTION_SAVE,
+            "_Cancel", GTK_RESPONSE_CANCEL,
+            "_Save", GTK_RESPONSE_ACCEPT,
+            NULL
+        );
+        gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), name);
+    }
 
     if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
         char *save_path = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
 
-        if (client_download(state->conn, file_id, save_path) == 0) {
-            show_info_dialog(state->window, "File downloaded successfully!");
+        if (is_directory) {
+            // For directories, append the folder name to the selected path
+            char full_path[1024];
+            snprintf(full_path, sizeof(full_path), "%s/%s", save_path, name);
+
+            if (client_download_folder(state->conn, file_id, full_path) == 0) {
+                show_info_dialog(state->window, "Folder downloaded successfully!");
+            } else {
+                show_error_dialog(state->window, "Folder download failed");
+            }
         } else {
-            show_error_dialog(state->window, "Download failed");
+            if (client_download(state->conn, file_id, save_path) == 0) {
+                show_info_dialog(state->window, "File downloaded successfully!");
+            } else {
+                show_error_dialog(state->window, "Download failed");
+            }
         }
 
         g_free(save_path);
     }
 
     g_free(name);
+    g_free(type);
     gtk_widget_destroy(dialog);
 }
 

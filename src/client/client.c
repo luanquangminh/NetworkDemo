@@ -351,10 +351,17 @@ int client_download(ClientConnection* conn, int file_id, const char* local_path)
     if (result < 0) return -1;
 
     Packet* response = net_recv_packet(conn->socket_fd);
-    if (!response) return -1;
+    if (!response) {
+        printf("Error: No response from server\n");
+        return -1;
+    }
 
     if (response->command != CMD_DOWNLOAD_RES) {
-        printf("Error: Download request rejected\n");
+        printf("Error: Download request rejected (got command %d, expected %d)\n",
+               response->command, CMD_DOWNLOAD_RES);
+        if (response->payload && response->data_length > 0) {
+            printf("Server response: %.*s\n", (int)response->data_length, response->payload);
+        }
         packet_free(response);
         return -1;
     }
@@ -1095,3 +1102,4 @@ int client_admin_update_user(ClientConnection* conn, int user_id, int is_admin, 
     packet_free(res_pkt);
     return 0;  // Success
 }
+

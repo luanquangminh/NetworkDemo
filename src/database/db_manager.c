@@ -211,6 +211,107 @@ int db_log_activity(Database* db, int user_id, const char* action_type, const ch
     return result;
 }
 
+int db_list_activity_logs(Database* db, int user_id_filter, const char* action_type_filter,
+                          const char* start_date, const char* end_date,
+                          int limit, char** json_result) {
+    pthread_mutex_lock(&db->mutex);
+
+    // Build dynamic SQL query with filters
+    char sql[1024];
+    strcpy(sql, "SELECT al.id, al.user_id, u.username, al.action_type, "
+                "al.description, al.timestamp "
+                "FROM activity_logs al "
+                "LEFT JOIN users u ON al.user_id = u.id WHERE 1=1");
+
+    // Add filters to SQL
+    if (user_id_filter > 0) {
+        strcat(sql, " AND al.user_id = ?");
+    }
+    if (action_type_filter && strlen(action_type_filter) > 0) {
+        strcat(sql, " AND al.action_type LIKE ?");
+    }
+    if (start_date && strlen(start_date) > 0) {
+        strcat(sql, " AND al.timestamp >= ?");
+    }
+    if (end_date && strlen(end_date) > 0) {
+        strcat(sql, " AND al.timestamp <= ?");
+    }
+
+    strcat(sql, " ORDER BY al.timestamp DESC LIMIT ?");
+
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(db->conn, sql, -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        pthread_mutex_unlock(&db->mutex);
+        return -1;
+    }
+
+    // Bind parameters based on filters
+    int param_index = 1;
+    if (user_id_filter > 0) {
+        sqlite3_bind_int(stmt, param_index++, user_id_filter);
+    }
+    if (action_type_filter && strlen(action_type_filter) > 0) {
+        char pattern[256];
+        snprintf(pattern, sizeof(pattern), "%%%s%%", action_type_filter);
+        sqlite3_bind_text(stmt, param_index++, pattern, -1, SQLITE_TRANSIENT);
+    }
+    if (start_date && strlen(start_date) > 0) {
+        sqlite3_bind_text(stmt, param_index++, start_date, -1, SQLITE_STATIC);
+    }
+    if (end_date && strlen(end_date) > 0) {
+        char end_with_time[32];
+        snprintf(end_with_time, sizeof(end_with_time), "%s 23:59:59", end_date);
+        sqlite3_bind_text(stmt, param_index++, end_with_time, -1, SQLITE_TRANSIENT);
+    }
+    sqlite3_bind_int(stmt, param_index++, limit);
+
+    // Build JSON result (allocate larger buffer for logs)
+    char* buffer = malloc(65536);  // 64KB for log entries
+    if (!buffer) {
+        sqlite3_finalize(stmt);
+        pthread_mutex_unlock(&db->mutex);
+        return -1;
+    }
+
+    strcpy(buffer, "[");
+    int first = 1;
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        if (!first) strcat(buffer, ",");
+        first = 0;
+
+        int id = sqlite3_column_int(stmt, 0);
+        int user_id = sqlite3_column_int(stmt, 1);
+        const char* username = (const char*)sqlite3_column_text(stmt, 2);
+        const char* action_type = (const char*)sqlite3_column_text(stmt, 3);
+        const char* description = (const char*)sqlite3_column_text(stmt, 4);
+        const char* timestamp = (const char*)sqlite3_column_text(stmt, 5);
+
+        // Handle NULL values
+        if (!username) username = "unknown";
+        if (!action_type) action_type = "";
+        if (!description) description = "";
+        if (!timestamp) timestamp = "";
+
+        char entry[2048];
+        snprintf(entry, sizeof(entry),
+                 "{\"id\":%d,\"user_id\":%d,\"username\":\"%s\","
+                 "\"action_type\":\"%s\",\"description\":\"%s\","
+                 "\"timestamp\":\"%s\"}",
+                 id, user_id, username, action_type, description, timestamp);
+        strcat(buffer, entry);
+    }
+
+    strcat(buffer, "]");
+
+    sqlite3_finalize(stmt);
+    pthread_mutex_unlock(&db->mutex);
+
+    *json_result = buffer;
+    return 0;
+}
+
 // File operations - stub implementations for Phase 4
 int db_create_file(Database* db, int parent_id, const char* name, const char* physical_path,
                    int owner_id, long size, int is_directory, int permissions) {

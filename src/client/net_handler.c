@@ -1,5 +1,4 @@
 #include "net_handler.h"
-#include "../common/utils.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -70,28 +69,55 @@ int net_send_file(int sockfd, const char* file_path) {
     FILE* fp = fopen(file_path, "rb");
     if (!fp) return -1;
 
-    char buffer[8192];
-    size_t bytes_read;
-    int result = 0;
-
-    while ((bytes_read = fread(buffer, 1, sizeof(buffer), fp)) > 0) {
-        Packet* pkt = packet_create(CMD_UPLOAD_DATA, buffer, bytes_read);
-        if (!pkt) {
-            result = -1;
-            break;
-        }
-
-        if (packet_send(sockfd, pkt) < 0) {
-            packet_free(pkt);
-            result = -1;
-            break;
-        }
-
-        packet_free(pkt);
+    // Get file size
+    if (fseek(fp, 0, SEEK_END) != 0) {
+        fclose(fp);
+        return -1;
+    }
+    long file_size = ftell(fp);
+    if (file_size < 0) {
+        fclose(fp);
+        return -1;
+    }
+    if (fseek(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
+        return -1;
     }
 
+    // Check if file size exceeds MAX_PAYLOAD_SIZE
+    if ((size_t)file_size > MAX_PAYLOAD_SIZE) {
+        fclose(fp);
+        return -1;  // File too large for single packet
+    }
+
+    // Allocate buffer for entire file
+    char* buffer = malloc((size_t)file_size);
+    if (!buffer) {
+        fclose(fp);
+        return -1;
+    }
+
+    // Read entire file into buffer
+    size_t bytes_read = fread(buffer, 1, (size_t)file_size, fp);
     fclose(fp);
-    return result;
+
+    if (bytes_read != (size_t)file_size) {
+        free(buffer);
+        return -1;
+    }
+
+    // Send single packet with complete file data
+    Packet* pkt = packet_create(CMD_UPLOAD_DATA, buffer, (uint32_t)file_size);
+    free(buffer);
+
+    if (!pkt) {
+        return -1;
+    }
+
+    int result = packet_send(sockfd, pkt);
+    packet_free(pkt);
+
+    return (result < 0) ? -1 : 0;
 }
 
 int net_recv_file(int sockfd, const char* file_path, size_t file_size) {

@@ -1,11 +1,23 @@
 # ============================================================================
-# File Sharing System - Root Makefile
+# File Sharing System - Root Makefile (Optimized for Parallel Builds)
+# ============================================================================
+# Optimizations:
+# - Parallel compilation enabled (automatically uses all CPU cores)
+# - Automatic dependency tracking (.d files)
+# - Improved incremental builds
+# - Eliminated redundant recursive make calls
+# - Build directory order-only prerequisites
 # ============================================================================
 
 # Compiler and flags
 CC = gcc
 CFLAGS = -Wall -Wextra -pthread -Isrc/common -Isrc/database -Ilib/cJSON
 LIBS = -lsqlite3 -lpthread -lcrypto
+
+# Parallel build configuration
+# Automatically detect number of CPU cores for parallel builds
+NPROCS := $(shell sysctl -n hw.ncpu 2>/dev/null || echo 1)
+MAKEFLAGS += --jobs=$(NPROCS) --output-sync=target
 
 # Directories
 SRC_COMMON = src/common
@@ -24,6 +36,10 @@ SERVER_BIN = $(BUILD)/server
 CLIENT_BIN = $(BUILD)/client
 GUI_CLIENT_BIN = $(BUILD)/gui_client
 
+# Libraries (for dependency tracking)
+COMMON_LIB = $(SRC_COMMON)/libcommon.a
+DATABASE_LIB = $(SRC_DATABASE)/libdatabase.a
+
 # ============================================================================
 # Phony targets
 # ============================================================================
@@ -41,51 +57,53 @@ GUI_CLIENT_BIN = $(BUILD)/gui_client
 all: server client gui
 
 # ============================================================================
-# Build targets
+# Build targets (optimized for parallel execution)
 # ============================================================================
 
-# Build server
-server: | $(BUILD)
+# Build server - now uses explicit dependency on libraries for parallel builds
+# This allows make to build common and database libraries in parallel
+server: $(COMMON_LIB) $(DATABASE_LIB) | $(BUILD)
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "Building Server"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@$(MAKE) -C $(SRC_COMMON)
-	@$(MAKE) -C $(SRC_DATABASE)
 	@$(MAKE) -C $(SRC_SERVER)
 	@echo "✓ Server built: $(SERVER_BIN)"
 	@echo ""
 
-# Build client
-client: | $(BUILD)
+# Build client - explicit dependency on common library
+client: $(COMMON_LIB) | $(BUILD)
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "Building CLI Client"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@$(MAKE) -C $(SRC_COMMON)
 	@$(MAKE) -C $(SRC_CLIENT)
 	@echo "✓ Client built: $(CLIENT_BIN)"
 	@echo ""
 
-# Build GUI client
-gui: | $(BUILD)
+# Build GUI client - explicit dependencies
+gui: $(COMMON_LIB) | $(BUILD)
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "Building GTK GUI Client"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@$(MAKE) -C $(SRC_COMMON)
 	@$(MAKE) -C $(SRC_CLIENT) client.o net_handler.o
 	@$(MAKE) -C $(SRC_CLIENT)/gui
 	@echo "✓ GUI client built: $(GUI_CLIENT_BIN)"
 	@echo ""
 
-# Build tests
-tests: | $(BUILD)
+# Build tests - explicit dependencies on both libraries
+tests: $(COMMON_LIB) $(DATABASE_LIB) | $(BUILD)
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "Building Tests"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@$(MAKE) -C $(SRC_COMMON)
-	@$(MAKE) -C $(SRC_DATABASE)
 	@$(MAKE) -C $(TESTS)
 	@echo "✓ Tests built"
 	@echo ""
+
+# Library build rules - these can be built in parallel
+$(COMMON_LIB):
+	@$(MAKE) -C $(SRC_COMMON)
+
+$(DATABASE_LIB):
+	@$(MAKE) -C $(SRC_DATABASE)
 
 # Create build directory
 $(BUILD):
@@ -199,17 +217,20 @@ check-gtk:
 	@pkg-config --exists gtk4 || { echo "✗ GTK4 not found. Install with: brew install gtk4"; exit 1; }
 
 # ============================================================================
-# Clean targets
+# Clean targets (optimized for parallel execution)
 # ============================================================================
 
+# Clean all build artifacts
+# Note: We use subshells with & to enable parallel cleaning across directories
 clean:
 	@echo "Cleaning build artifacts..."
-	@$(MAKE) -C $(SRC_COMMON) clean
-	@$(MAKE) -C $(SRC_DATABASE) clean
-	@$(MAKE) -C $(SRC_SERVER) clean
-	@$(MAKE) -C $(SRC_CLIENT) clean
-	@$(MAKE) -C $(SRC_CLIENT)/gui clean 2>/dev/null || true
-	@$(MAKE) -C $(TESTS) clean
+	@$(MAKE) -C $(SRC_COMMON) clean & \
+	$(MAKE) -C $(SRC_DATABASE) clean & \
+	$(MAKE) -C $(SRC_SERVER) clean & \
+	$(MAKE) -C $(SRC_CLIENT) clean & \
+	$(MAKE) -C $(SRC_CLIENT)/gui clean 2>/dev/null & \
+	$(MAKE) -C $(TESTS) clean & \
+	wait
 	@rm -rf $(BUILD)
 	@rm -f /tmp/fileshare-*.pid /tmp/fileshare-*.log
 	@echo "✓ Clean complete"
@@ -220,11 +241,12 @@ clean:
 
 help:
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	@echo "File Sharing System - Build Targets"
+	@echo "File Sharing System - Build Targets (Parallel Build Optimized)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo ""
 	@echo "BUILD TARGETS:"
 	@echo "  make all             - Build server, CLI client, and GUI client (default)"
+	@echo "                         Uses all $(NPROCS) CPU cores for parallel compilation"
 	@echo "  make server          - Build server only"
 	@echo "  make client          - Build CLI client only"
 	@echo "  make gui             - Build GUI client only"

@@ -467,13 +467,19 @@ void handle_download(ClientSession* session, Packet* pkt) {
 
     int file_id = file_id_item->valueint;
 
+    // DEBUG: Log download attempt
+    log_info("DOWNLOAD REQUEST: user_id=%d, file_id=%d", session->user_id, file_id);
+
     // Check READ permission on file
     if (!check_permission(global_db, session->user_id, file_id, ACCESS_READ)) {
+        log_error("PERMISSION DENIED: user_id=%d, file_id=%d", session->user_id, file_id);
         send_error(session, "Permission denied");
         db_log_activity(global_db, session->user_id, "ACCESS_DENIED", "DOWNLOAD");
         cJSON_Delete(json);
         return;
     }
+
+    log_info("PERMISSION GRANTED: user_id=%d, file_id=%d", session->user_id, file_id);
 
     // Get file entry from database
     FileEntry entry;
@@ -499,10 +505,23 @@ void handle_download(ClientSession* session, Packet* pkt) {
         return;
     }
 
-    // Send binary data with CMD_DOWNLOAD_RES
-    Packet* response = packet_create(CMD_DOWNLOAD_RES, (char*)data, size);
-    packet_send(session->client_socket, response);
-    packet_free(response);
+    // STEP 1: Send metadata JSON first
+    cJSON* metadata = cJSON_CreateObject();
+    cJSON_AddNumberToObject(metadata, "size", (double)size);
+    cJSON_AddStringToObject(metadata, "name", entry.name);
+
+    char* json_str = cJSON_PrintUnformatted(metadata);
+    Packet* meta_pkt = packet_create(CMD_DOWNLOAD_RES, json_str, strlen(json_str));
+    packet_send(session->client_socket, meta_pkt);
+
+    free(json_str);
+    packet_free(meta_pkt);
+    cJSON_Delete(metadata);
+
+    // STEP 2: Send file data with CMD_SUCCESS (client expects non-CMD_DOWNLOAD_RES for data)
+    Packet* data_pkt = packet_create(CMD_SUCCESS, (char*)data, size);
+    packet_send(session->client_socket, data_pkt);
+    packet_free(data_pkt);
 
     free(data);
     cJSON_Delete(json);

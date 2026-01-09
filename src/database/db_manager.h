@@ -47,6 +47,9 @@ int db_create_user_admin(Database* db, const char* username, const char* passwor
 
 // Activity logging
 int db_log_activity(Database* db, int user_id, const char* action_type, const char* description);
+int db_list_activity_logs(Database* db, int user_id_filter, const char* action_type_filter,
+                          const char* start_date, const char* end_date,
+                          int limit, char** json_result);
 
 // File operations (stubs for Phase 4, but implement signature)
 int db_create_file(Database* db, int parent_id, const char* name, const char* physical_path,
